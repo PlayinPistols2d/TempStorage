@@ -20,71 +20,131 @@ private:
     int vx, vy;
     float gravity;
     QTimer *timer;
-    bool grounded; // Added to track if particle has landed
 };
 
 class RainbowButton : public QPushButton {
-    // Unchanged, omitted for brevity
+    Q_OBJECT
+
+public:
+    explicit RainbowButton(QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void enterEvent(QEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void timerEvent(QTimerEvent *event) override;
+
+private:
+    int m_offset;
+    bool m_pressed;
+    bool m_hovered;
+
+    void spawnEmojis();
 };
 
 #endif // RAINBOWBUTTON_H
 
 
 
+
 #include "RainbowButton.h"
 
 EmojiParticle::EmojiParticle(const QString &emoji, QWidget *parent)
-    : QLabel(parent), gravity(0.6), grounded(false) {
+    : QLabel(parent), gravity(0.6) {
     setText(emoji);
     setStyleSheet("font-size: 20px;");
     setAttribute(Qt::WA_TransparentForMouseEvents);
     move(parent->width() / 2, parent->height() / 2);
     setFixedSize(30, 30);
 
-    // Adjusted for volcano effect
-    vx = QRandomGenerator::global()->bounded(-5, 6);  // Wider horizontal spread
-    vy = QRandomGenerator::global()->bounded(-20, -10); // Shoot higher upwards
+    vx = QRandomGenerator::global()->bounded(-3, 4);  // Small horizontal movement
+    vy = QRandomGenerator::global()->bounded(-15, -8); // Shoot upwards first
 
     timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &EmojiParticle::updatePosition);
     timer->start(30);
 
-    // Removed: QTimer::singleShot(3000, this, &QWidget::deleteLater);
+    QTimer::singleShot(3000, this, &QWidget::deleteLater); // Auto-remove after 3s
 }
 
 void EmojiParticle::updatePosition() {
-    if (!grounded) {
-        int newX = x() + vx;
-        int newY = y() + vy;
-        vy += gravity; // Apply gravity
+    move(x() + vx, y() + vy);
+    vy += gravity; // Gravity pulls it down
+}
 
-        // Check if it reaches the bottom
-        if (newY >= parentWidget()->height() - height()) {
-            newY = parentWidget()->height() - height(); // Snap to bottom
-            vy = 0; // Stop vertical movement
-            grounded = true; // Mark as landed
-        }
-        move(newX, newY);
-    } else {
-        // Grounded: handle horizontal sliding with friction
-        int newX = x() + vx;
+RainbowButton::RainbowButton(QWidget *parent) 
+    : QPushButton(parent), m_offset(0), m_pressed(false), m_hovered(false) {
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    startTimer(50); // Color shift effect
+}
 
-        // Keep within horizontal bounds
-        if (newX < 0) {
-            newX = 0;
-            vx = 0;
-        } else if (newX > parentWidget()->width() - width()) {
-            newX = parentWidget()->width() - width();
-            vx = 0;
-        } else {
-            vx *= 0.9; // Apply friction (reduce by 10% each frame)
-        }
-        move(newX, y());
+void RainbowButton::paintEvent(QPaintEvent *event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
 
-        // If horizontal speed is negligible, stop and schedule deletion
-        if (qAbs(vx) < 0.1) {
-            timer->stop(); // Stop movement updates
-            QTimer::singleShot(2000, this, &QWidget::deleteLater); // Delete after 2s rest
-        }
+    // Create rainbow gradient
+    QLinearGradient gradient(0, 0, width(), 0);
+    const int steps = 8;
+    for (int i = 0; i <= steps; ++i) {
+        float pos = static_cast<float>(i) / steps;
+        int hue = (m_offset + static_cast<int>(pos * 360)) % 360;
+        QColor color = QColor::fromHsv(hue, 255, 255);
+        if (m_pressed) color = color.darker(120);
+        else if (m_hovered) color = color.lighter(110);
+        gradient.setColorAt(pos, color);
+    }
+
+    painter.setBrush(gradient);
+    painter.setPen(Qt::NoPen);
+    QRectF btnRect = m_pressed ? rect().adjusted(2, 2, -2, -2) : rect();
+    painter.drawRoundedRect(btnRect, 10, 10);
+
+    // Always use light font color
+    painter.setFont(QFont("Arial", 14, QFont::Bold));
+    painter.setPen(Qt::white);
+    painter.drawText(btnRect.toRect(), Qt::AlignCenter, text());
+}
+
+void RainbowButton::enterEvent(QEvent *event) {
+    QPushButton::enterEvent(event);
+    m_hovered = true;
+    update();
+}
+
+void RainbowButton::leaveEvent(QEvent *event) {
+    QPushButton::leaveEvent(event);
+    m_hovered = false;
+    update();
+}
+
+void RainbowButton::mousePressEvent(QMouseEvent *event) {
+    QPushButton::mousePressEvent(event);
+    m_pressed = true;
+    spawnEmojis();
+    update();
+}
+
+void RainbowButton::mouseReleaseEvent(QMouseEvent *event) {
+    QPushButton::mouseReleaseEvent(event);
+    m_pressed = false;
+    update();
+}
+
+void RainbowButton::timerEvent(QTimerEvent *event) {
+    Q_UNUSED(event);
+    m_offset = (m_offset + 3) % 360;
+    update();
+}
+
+void RainbowButton::spawnEmojis() {
+    static QStringList emojis = { "🎉", "🥳", "✨", "🔥", "💖", "🎊", "😃" };
+    for (int i = 0; i < 10; ++i) {
+        auto *emoji = new EmojiParticle(emojis[QRandomGenerator::global()->bounded(emojis.size())], parentWidget());
+        emoji->move(mapToParent(rect().center())); // Start at button center
+        emoji->show();
     }
 }
+
