@@ -3,12 +3,13 @@ void RainbowButton::cleanupOldEmojis()
     if (m_activeSpawnGroups.isEmpty()) return;
 
     int oldestGroup = m_activeSpawnGroups.dequeue();
+
     auto it = m_activeParticles.begin();
-    
     while (it != m_activeParticles.end()) {
-        if ((*it)->spawnGroupId == oldestGroup) {
-            (*it)->startFadeOut();
-            it = m_activeParticles.erase(it); // Remove it immediately
+        EmojiParticle* emoji = *it;
+        if (emoji->spawnGroupId == oldestGroup) {
+            emoji->deleteParticle(); // Fully remove everything
+            it = m_activeParticles.erase(it);
         } else {
             ++it;
         }
@@ -16,44 +17,20 @@ void RainbowButton::cleanupOldEmojis()
 }
 
 
-const int MAX_TOTAL_EMOJIS = 50;  // Adjust as needed
 
-void RainbowButton::spawnEmojis(const QPoint& clickPos)
+
+void EmojiParticle::deleteParticle()
 {
-    static QStringList emojis = { "🎉", "🥳", "✨", "🔥", "💖", "🎊", "😃", "🌟", "🎁", "👾"};
-
-    if (m_activeParticles.size() >= MAX_TOTAL_EMOJIS) {
-        cleanupOldEmojis();
+    if (moveTimer) {
+        moveTimer->stop();
+        delete moveTimer;
+        moveTimer = nullptr;
+    }
+    if (fadeAnimation) {
+        fadeAnimation->stop();
+        delete fadeAnimation;
+        fadeAnimation = nullptr;
     }
 
-    if (m_activeSpawnGroups.size() >= 3) {
-        cleanupOldEmojis();
-    }
-
-    m_currentSpawnGroup++;
-    m_activeSpawnGroups.enqueue(m_currentSpawnGroup);
-
-    QPoint globalPos = mapTo(window(), clickPos);
-
-    for (int i = 0; i < 10; ++i) {
-        if (m_activeParticles.size() >= MAX_TOTAL_EMOJIS) break; // Prevent overload
-
-        QPoint spawnPos = globalPos + QPoint(
-                              QRandomGenerator::global()->bounded(-15, 16),
-                              QRandomGenerator::global()->bounded(-15, 16)
-                              );
-
-        auto *emoji = new EmojiParticle(
-            emojis[QRandomGenerator::global()->bounded(emojis.size())],
-            spawnPos,
-            window()
-            );
-        emoji->spawnGroupId = m_currentSpawnGroup;
-        emoji->show();
-
-        m_activeParticles.append(emoji);
-        connect(emoji, &QObject::destroyed, this, [this, emoji]() {
-            m_activeParticles.removeAll(emoji);
-        });
-    }
+    deleteLater(); // Fully remove the object
 }
