@@ -8,7 +8,7 @@ void RainbowButton::cleanupOldEmojis()
     while (it != m_activeParticles.end()) {
         EmojiParticle* emoji = *it;
         if (emoji->spawnGroupId == oldestGroup) {
-            emoji->deleteParticle(); // Fully remove everything
+            emoji->deleteParticle(); // Safe cleanup
             it = m_activeParticles.erase(it);
         } else {
             ++it;
@@ -19,18 +19,21 @@ void RainbowButton::cleanupOldEmojis()
 
 
 
+
+
 void EmojiParticle::deleteParticle()
 {
     if (moveTimer) {
         moveTimer->stop();
-        delete moveTimer;
+        moveTimer->deleteLater(); // Don't manually delete, use deleteLater()
         moveTimer = nullptr;
     }
     if (fadeAnimation) {
         fadeAnimation->stop();
-        delete fadeAnimation;
+        fadeAnimation->deleteLater(); // Don't manually delete
         fadeAnimation = nullptr;
     }
 
-    deleteLater(); // Fully remove the object
+    hide(); // Hide the emoji immediately to remove it from rendering
+    deleteLater(); // Schedule safe deletion
 }
