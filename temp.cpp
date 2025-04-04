@@ -1,192 +1,108 @@
-#ifndef BITCONVERTER_H
-#define BITCONVERTER_H
+CREATE OR REPLACE FUNCTION upsert_pm(
+    in_nm TEXT,
+    in_desc TEXT,
+    in_fltr JSONB,
+    in_dev TEXT,
+    in_rnd TEXT,
+    in_io BOOLEAN
+) RETURNS INTEGER AS
+$$
+DECLARE
+    existing_id INTEGER;
+    existing_fltr JSONB;
+    new_fltr JSONB;
+    report_type INT;
+    existing_var_part TEXT;
+    new_var_part TEXT;
+    base_var_part TEXT;
+    last_number INT;
+    parts TEXT[];
+BEGIN
+    -- Try to get existing row by name
+    SELECT id, fltr INTO existing_id, existing_fltr
+    FROM public.pm
+    WHERE nm = in_nm;
 
-#include <QString>
+    IF existing_id IS NOT NULL THEN
+        -- Extract report_type and var_part
+        report_type := (in_fltr ->> 'report_type')::INT;
 
-class BitConverter {
-public:
-    static QString hexToDecimalPair(const QString &hex);
-    static QString decimalPairToHex(int type, int kind);
-};
+        IF (existing_fltr ->> 'report_type')::INT = report_type THEN
+            existing_var_part := existing_fltr ->> 'var_part';
 
-#endif // BITCONVERTER_H
+            -- Split existing var_part by '#' to get parts
+            parts := string_to_array(existing_var_part, '#');
 
+            -- Get last numeric part and increment
+            last_number := parts[array_length(parts, 1)]::INT + 1;
 
-#include "BitConverter.h"
-#include <QRegularExpression>
+            -- Create new var_part by appending #<next_number>
+            new_var_part := existing_var_part || '#' || last_number::TEXT;
 
-QString BitConverter::hexToDecimalPair(const QString &hex) {
-    if (hex.length() != 4 || !QRegularExpression("^[0-9A-Fa-f]{4}$").match(hex).hasMatch())
-        return "Ошибка! Введите 4-значный HEX.";
+            -- Set it in the incoming fltr JSON
+            new_fltr := jsonb_set(in_fltr, '{var_part}', to_jsonb(new_var_part::TEXT), false);
+        ELSE
+            -- If report_type doesn't match, keep incoming fltr as is
+            new_fltr := in_fltr;
+        END IF;
 
-    bool ok;
-    int value = hex.toInt(&ok, 16);
-    if (!ok) return "Ошибка конвертации!";
+        -- Update existing row
+        UPDATE public.pm
+        SET fltr = new_fltr,
+            "desc" = in_desc,
+            type = in_rnd,
+            io = in_io
+        WHERE id = existing_id
+        RETURNING id INTO existing_id;
 
-    int type = (value >> 6) & 0x3FF; // 10 старших бит
-    int kind = value & 0x3F;         // 6 младших бит
+        RETURN existing_id;
+    ELSE
+        -- Insert new row
+        INSERT INTO public.pm(nm, "desc", fltr, sv_dev, glb, type, io, en)
+        VALUES (
+            in_nm,
+            in_desc,
+            in_fltr,
+            (SELECT id FROM public.ldev WHERE nm = in_dev),
+            FALSE,
+            in_rnd,
+            in_io,
+            TRUE
+        )
+        RETURNING id INTO existing_id;
 
-    return QString("Тип: %1, Вид: %2").arg(type).arg(kind);
-}
-
-QString BitConverter::decimalPairToHex(int type, int kind) {
-    if (type < 0 || type > 1023 || kind < 0 || kind > 63)
-        return "Ошибка! Тип (0-1023), Вид (0-63).";
-
-    int combined = (type << 6) | kind;
-    return QString("%1").arg(combined, 4, 16, QChar('0')).toUpper();
-}
-
-
-
-
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
-
-#include <QMainWindow>
-
-QT_BEGIN_NAMESPACE
-namespace Ui { class MainWindow; }
-QT_END_NAMESPACE
-
-class MainWindow : public QMainWindow {
-    Q_OBJECT
-
-public:
-    MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-
-private slots:
-    void onConvertClicked();
-    void onCopyClicked();
-
-private:
-    Ui::MainWindow *ui;
-};
-
-#endif // MAINWINDOW_H
+        RETURN existing_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
 
 
 
 
+QSqlQuery query;
+query.prepare(R"(
+    SELECT upsert_pm(
+        :nm,
+        :desc,
+        :fltr,
+        :dev,
+        :rnd,
+        :io
+    ) AS pmId
+)");
 
-#include "MainWindow.h"
-#include "ui_MainWindow.h"
-#include "BitConverter.h"
-#include <QClipboard>
+query.bindValue(":nm", name);
+query.bindValue(":desc", description);
+query.bindValue(":fltr", QJsonDocument(fltrJsonObject).toJson(QJsonDocument::Compact));  // fltr is a JSON object
+query.bindValue(":dev", deviceName);
+query.bindValue(":rnd", typeString);
+query.bindValue(":io", ioBool);
 
-MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), ui(new Ui::MainWindow) {
-    ui->setupUi(this);
-
-    connect(ui->convertButton, &QPushButton::clicked, this, &MainWindow::onConvertClicked);
-    connect(ui->copyButton, &QPushButton::clicked, this, &MainWindow::onCopyClicked);
-}
-
-MainWindow::~MainWindow() {
-    delete ui;
-}
-
-void MainWindow::onConvertClicked() {
-    QString hexInput = ui->hexInput->text().trimmed();
-    QString typeInput = ui->typeInput->text().trimmed();
-    QString kindInput = ui->kindInput->text().trimmed();
-    QString result;
-
-    if (!hexInput.isEmpty()) {  // Конвертация из HEX в два числа
-        result = BitConverter::hexToDecimalPair(hexInput);
-    } 
-    else if (!typeInput.isEmpty() && !kindInput.isEmpty()) {  // Конвертация из двух чисел в HEX
-        bool ok1, ok2;
-        int type = typeInput.toInt(&ok1);
-        int kind = kindInput.toInt(&ok2);
-
-        if (ok1 && ok2) {
-            result = "HEX: " + BitConverter::decimalPairToHex(type, kind);
-        } else {
-            result = "Ошибка! Введите корректные числа.";
-        }
-    } 
-    else {
-        result = "Введите данные!";
+if (!query.exec()) {
+    qDebug() << "Error executing query:" << query.lastError().text();
+} else {
+    if (query.next()) {
+        int pmId = query.value("pmId").toInt();
+        qDebug() << "Returned pmId:" << pmId;
     }
-
-    ui->resultLabel->setText(result);
 }
-
-void MainWindow::onCopyClicked() {
-    QClipboard *clipboard = QApplication::clipboard();
-    clipboard->setText(ui->resultLabel->text());
-}
-
-
-
-
-<?xml version="1.0" encoding="UTF-8"?>
-<ui version="4.0">
- <class>MainWindow</class>
- <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>100</x>
-    <y>100</y>
-    <width>400</width>
-    <height>300</height>
-   </rect>
-  </property>
-  <property name="windowTitle">
-   <string>HEX Конвертер</string>
-  </property>
-  <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout">
-
-    <widget class="QLineEdit" name="hexInput">
-     <property name="placeholderText">
-      <string>Введите HEX (4 символа)</string>
-     </property>
-    </widget>
-
-    <widget class="QLabel" name="labelOr">
-     <property name="text">
-      <string>Или введите два числа:</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-    </widget>
-
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <widget class="QLineEdit" name="typeInput">
-      <property name="placeholderText">
-       <string>Тип (0-1023)</string>
-      </property>
-     </widget>
-     <widget class="QLineEdit" name="kindInput">
-      <property name="placeholderText">
-       <string>Вид (0-63)</string>
-      </property>
-     </widget>
-    </layout>
-
-    <widget class="QPushButton" name="convertButton">
-     <property name="text">
-      <string>Конвертировать</string>
-     </property>
-    </widget>
-
-    <widget class="QLabel" name="resultLabel">
-     <property name="text">
-      <string>Результат появится здесь</string>
-     </property>
-    </widget>
-
-    <widget class="QPushButton" name="copyButton">
-     <property name="text">
-      <string>Скопировать</string>
-     </property>
-    </widget>
-
-   </layout>
-  </widget>
- </widget>
-</ui>
