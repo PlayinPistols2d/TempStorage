@@ -106,3 +106,25 @@ if (!query.exec()) {
         qDebug() << "Returned pmId:" << pmId;
     }
 }
+
+
+
+
+
+SELECT upsert_pm(
+    'SignalA',
+    'Initial Insert',
+    '{
+        "type": "name1",
+        "numbit": 12,
+        "offset": 6,
+        "numword": 9,
+        "countbit": 2,
+        "var_part": "70",
+        "report_type": 7,
+        "internalname": "somename1"
+    }'::jsonb,
+    'DeviceA',
+    'RandomType',
+    true
+);
