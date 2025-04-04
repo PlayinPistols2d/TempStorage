@@ -13,27 +13,31 @@ DECLARE
     new_fltr JSONB;
     report_type INT;
     existing_var_part TEXT;
-    new_var_part TEXT;
-    last_number INT;
-    parts TEXT[];
+    incoming_var_part TEXT;
+    combined_var_part TEXT;
 BEGIN
     SELECT id, fltr INTO existing_id, existing_fltr
     FROM public.pm
     WHERE nm = in_nm;
 
     IF existing_id IS NOT NULL THEN
-        -- Check if report_type matches
         report_type := (in_fltr ->> 'report_type')::INT;
 
         IF (existing_fltr ->> 'report_type')::INT = report_type THEN
             existing_var_part := existing_fltr ->> 'var_part';
+            incoming_var_part := in_fltr ->> 'var_part';
 
-            -- Split and get next number
-            parts := string_to_array(existing_var_part, '#');
-            last_number := parts[array_length(parts, 1)]::INT + 1;
-            new_var_part := existing_var_part || '#' || last_number::TEXT;
+            -- Append the new var_part if it's not already present
+            IF position('#' || incoming_var_part IN existing_var_part) = 0 AND
+               position(incoming_var_part || '#' IN existing_var_part) = 0 AND
+               existing_var_part != incoming_var_part THEN
 
-            new_fltr := jsonb_set(in_fltr, '{var_part}', to_jsonb(new_var_part::TEXT), false);
+                combined_var_part := existing_var_part || '#' || incoming_var_part;
+            ELSE
+                combined_var_part := existing_var_part;
+            END IF;
+
+            new_fltr := jsonb_set(in_fltr, '{var_part}', to_jsonb(combined_var_part::TEXT), false);
         ELSE
             new_fltr := in_fltr;
         END IF;
@@ -66,25 +70,3 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
-
-
-
-
-
-SELECT upsert_pm(
-    'SignalA',
-    'Final call with correct types',
-    '{
-        "type": "name1",
-        "numbit": 12,
-        "offset": 6,
-        "numword": 9,
-        "countbit": 2,
-        "var_part": "70",
-        "report_type": 7,
-        "internalname": "somename1"
-    }'::jsonb,
-    3,  -- sv_dev (device ID as INTEGER)
-    1,  -- type
-    0   -- io
-);
