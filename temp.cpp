@@ -1,72 +1,212 @@
-CREATE OR REPLACE FUNCTION upsert_pm(
-    in_nm TEXT,
-    in_desc TEXT,
-    in_fltr JSONB,
-    in_dev_id INTEGER,
-    in_type INTEGER,
-    in_io INTEGER
-) RETURNS INTEGER AS
-$$
-DECLARE
-    existing_id INTEGER;
-    existing_fltr JSONB;
-    new_fltr JSONB;
-    report_type INT;
-    existing_var_part TEXT;
-    incoming_var_part TEXT;
-    combined_var_part TEXT;
-BEGIN
-    SELECT id, fltr INTO existing_id, existing_fltr
-    FROM public.pm
-    WHERE nm = in_nm;
+#ifndef STATUSCIRCLE_H
+#define STATUSCIRCLE_H
 
-    IF existing_id IS NOT NULL THEN
-        report_type := (in_fltr ->> 'report_type')::INT;
+#include <QWidget>
+#include <QColor>
+#include <QString>
+#include <QPropertyAnimation>
 
-        IF (existing_fltr ->> 'report_type')::INT = report_type THEN
-            existing_var_part := existing_fltr ->> 'var_part';
-            incoming_var_part := in_fltr ->> 'var_part';
+class StatusCircle : public QWidget
+{
+    Q_OBJECT
+    Q_PROPERTY(qreal animationValue READ animationValue WRITE setAnimationValue)
 
-            -- Append the new var_part if it's not already present
-            IF position('#' || incoming_var_part IN existing_var_part) = 0 AND
-               position(incoming_var_part || '#' IN existing_var_part) = 0 AND
-               existing_var_part != incoming_var_part THEN
+public:
+    explicit StatusCircle(QWidget *parent = nullptr);
 
-                combined_var_part := existing_var_part || '#' || incoming_var_part;
-            ELSE
-                combined_var_part := existing_var_part;
-            END IF;
+    // Настройка размеров и внешнего вида
+    void setCircleDiameter(int diameter);
+    int circleDiameter() const;
 
-            new_fltr := jsonb_set(in_fltr, '{var_part}', to_jsonb(combined_var_part::TEXT), false);
-        ELSE
-            new_fltr := in_fltr;
-        END IF;
+    void setPositiveColor(const QColor &color);
+    QColor positiveColor() const;
 
-        UPDATE public.pm
-        SET fltr = new_fltr,
-            "desc" = in_desc,
-            type = in_type,
-            io = in_io,
-            sv_dev = in_dev_id
-        WHERE id = existing_id
-        RETURNING id INTO existing_id;
+    void setNegativeColor(const QColor &color);
+    QColor negativeColor() const;
 
-        RETURN existing_id;
-    ELSE
-        INSERT INTO public.pm(nm, "desc", fltr, sv_dev, glb, type, io, en)
-        VALUES (
-            in_nm,
-            in_desc,
-            in_fltr,
-            in_dev_id,
-            FALSE,
-            in_type,
-            in_io,
-            TRUE
-        )
-        RETURNING id INTO existing_id;
+    void setPositiveText(const QString &text);
+    QString positiveText() const;
 
-        RETURN existing_id;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
+    void setNegativeText(const QString &text);
+    QString negativeText() const;
+
+    // Переключение состояния: true – положительное (например, подключено), false – отрицательное
+    void setState(bool state);
+    bool state() const;
+
+    // Свойство для анимации перехода (значение от 0.0 до 1.0)
+    qreal animationValue() const;
+    void setAnimationValue(qreal value);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    bool m_state;                // Текущее состояние
+    qreal m_animationValue;      // Значение для анимации (0.0 = отрицательное, 1.0 = положительное)
+    int m_circleDiameter;        // Диаметр круга
+    QColor m_colorPositive;      // Цвет для положительного состояния
+    QColor m_colorNegative;      // Цвет для отрицательного состояния
+    QString m_textPositive;      // Текст для положительного состояния
+    QString m_textNegative;      // Текст для отрицательного состояния
+
+    QPropertyAnimation *m_animation; // Анимация изменения animationValue
+};
+
+#endif // STATUSCIRCLE_H
+
+
+
+
+#include "statuscircle.h"
+#include <QPainter>
+#include <QPaintEvent>
+#include <QFontMetrics>
+
+StatusCircle::StatusCircle(QWidget *parent)
+    : QWidget(parent),
+      m_state(false),
+      m_animationValue(0.0),
+      m_circleDiameter(20),
+      m_colorPositive(Qt::green),
+      m_colorNegative(Qt::red),
+      m_textPositive("Connected"),
+      m_textNegative("Disconnected"),
+      m_animation(new QPropertyAnimation(this, "animationValue", this))
+{
+    // Устанавливаем длительность анимации (в миллисекундах)
+    m_animation->setDuration(300);
+    m_animation->setStartValue(0.0);
+    m_animation->setEndValue(1.0);
+
+    // Настройка минимальных размеров виджета (можно изменить по необходимости)
+    setMinimumSize(100, m_circleDiameter + 20);
+}
+
+void StatusCircle::setCircleDiameter(int diameter)
+{
+    m_circleDiameter = diameter;
+    update();
+}
+
+int StatusCircle::circleDiameter() const
+{
+    return m_circleDiameter;
+}
+
+void StatusCircle::setPositiveColor(const QColor &color)
+{
+    m_colorPositive = color;
+    update();
+}
+
+QColor StatusCircle::positiveColor() const
+{
+    return m_colorPositive;
+}
+
+void StatusCircle::setNegativeColor(const QColor &color)
+{
+    m_colorNegative = color;
+    update();
+}
+
+QColor StatusCircle::negativeColor() const
+{
+    return m_colorNegative;
+}
+
+void StatusCircle::setPositiveText(const QString &text)
+{
+    m_textPositive = text;
+    update();
+}
+
+QString StatusCircle::positiveText() const
+{
+    return m_textPositive;
+}
+
+void StatusCircle::setNegativeText(const QString &text)
+{
+    m_textNegative = text;
+    update();
+}
+
+QString StatusCircle::negativeText() const
+{
+    return m_textNegative;
+}
+
+void StatusCircle::setState(bool state)
+{
+    if (m_state == state)
+        return;
+
+    m_state = state;
+
+    // Целевое значение для анимации: true -> 1.0, false -> 0.0
+    qreal targetValue = state ? 1.0 : 0.0;
+
+    // Перезапускаем анимацию изменения animationValue
+    m_animation->stop();
+    m_animation->setStartValue(m_animationValue);
+    m_animation->setEndValue(targetValue);
+    m_animation->start();
+}
+
+bool StatusCircle::state() const
+{
+    return m_state;
+}
+
+qreal StatusCircle::animationValue() const
+{
+    return m_animationValue;
+}
+
+void StatusCircle::setAnimationValue(qreal value)
+{
+    m_animationValue = value;
+    update();
+}
+
+void StatusCircle::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event);
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // Выбираем текст для отображения:
+    // Если animationValue >= 0.5 – отображаем положительный, иначе отрицательный
+    QString displayText = (m_animationValue >= 0.5) ? m_textPositive : m_textNegative;
+
+    // Интерполяция цвета на основе animationValue
+    int r = static_cast<int>(m_colorNegative.red()   + (m_colorPositive.red()   - m_colorNegative.red()) * m_animationValue);
+    int g = static_cast<int>(m_colorNegative.green() + (m_colorPositive.green() - m_colorNegative.green()) * m_animationValue);
+    int b = static_cast<int>(m_colorNegative.blue()  + (m_colorPositive.blue()  - m_colorNegative.blue()) * m_animationValue);
+    QColor currentColor(r, g, b);
+
+    // Получаем размеры текста и рассчитываем позиционирование
+    QFontMetrics fm(font());
+    int textWidth = fm.horizontalAdvance(displayText);
+    int textHeight = fm.height();
+
+    int margin = 10;
+    int textX = margin;
+    int textY = (height() - textHeight) / 2 + fm.ascent();
+
+    // Отрисовка текста слева
+    painter.drawText(textX, textY, displayText);
+
+    // Расчёт позиции и размера круга справа от текста
+    int circleX = textWidth + 2 * margin;
+    int circleY = (height() - m_circleDiameter) / 2;
+    QRect circleRect(circleX, circleY, m_circleDiameter, m_circleDiameter);
+
+    // Отрисовка круга со сменой цвета (анимация)
+    painter.setPen(Qt::black);
+    painter.setBrush(currentColor);
+    painter.drawEllipse(circleRect);
+}
