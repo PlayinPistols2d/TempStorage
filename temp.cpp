@@ -1,3 +1,69 @@
+#ifndef STATUSCIRCLE_H
+#define STATUSCIRCLE_H
+
+#include <QWidget>
+#include <QColor>
+#include <QString>
+#include <QPropertyAnimation>
+
+class StatusCircle : public QWidget
+{
+    Q_OBJECT
+    Q_PROPERTY(qreal animationValue READ animationValue WRITE setAnimationValue)
+
+public:
+    explicit StatusCircle(QWidget *parent = nullptr);
+
+    // Методы для настройки внешнего вида
+    void setCircleDiameter(int diameter);
+    int circleDiameter() const;
+
+    void setPositiveColor(const QColor &color);
+    QColor positiveColor() const;
+
+    void setNegativeColor(const QColor &color);
+    QColor negativeColor() const;
+
+    void setPositiveText(const QString &text);
+    QString positiveText() const;
+
+    void setNegativeText(const QString &text);
+    QString negativeText() const;
+
+    // Переключение состояния (true – положительное, false – отрицательное)
+    void setState(bool state);
+    bool state() const;
+
+    // Свойство для анимации перехода (0.0 - отрицательное, 1.0 - положительное)
+    qreal animationValue() const;
+    void setAnimationValue(qreal value);
+
+    // Рекомендуемый размер виджета, учитывающий область для текста и фиксированное положение круга
+    QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    bool m_state;                // Текущее состояние
+    qreal m_animationValue;      // Значение для анимации
+    int m_circleDiameter;        // Диаметр круга
+    QColor m_colorPositive;      // Цвет положительного состояния
+    QColor m_colorNegative;      // Цвет отрицательного состояния
+    QString m_textPositive;      // Текст положительного состояния
+    QString m_textNegative;      // Текст отрицательного состояния
+
+    QPropertyAnimation *m_animation; // Анимация изменения animationValue
+};
+
+#endif // STATUSCIRCLE_H
+
+
+
+
+
+
+
 #include "statuscircle.h"
 #include <QPainter>
 #include <QPaintEvent>
@@ -15,13 +81,13 @@ StatusCircle::StatusCircle(QWidget *parent)
       m_textNegative("Disconnected"),
       m_animation(new QPropertyAnimation(this, "animationValue", this))
 {
-    // Длительность анимации (мс)
+    // Длительность анимации (в мс)
     m_animation->setDuration(300);
     m_animation->setStartValue(0.0);
     m_animation->setEndValue(1.0);
 
-    // Задаем небольшие отступы, чтобы содержимое не слипалось с краями
-    setContentsMargins(5,5,5,5);
+    // Задаем небольшие отступы, чтобы содержимое не прилипало к краям
+    setContentsMargins(5, 5, 5, 5);
 }
 
 void StatusCircle::setCircleDiameter(int diameter)
@@ -86,7 +152,7 @@ void StatusCircle::setState(bool state)
 
     m_state = state;
 
-    // Целевое значение анимации: true → 1.0, false → 0.0
+    // Целевое значение для анимации: true → 1.0, false → 0.0
     qreal targetValue = state ? 1.0 : 0.0;
     m_animation->stop();
     m_animation->setStartValue(m_animationValue);
@@ -113,10 +179,15 @@ void StatusCircle::setAnimationValue(qreal value)
 QSize StatusCircle::sizeHint() const
 {
     QFontMetrics fm(font());
-    // Чтобы текст полностью умещался, считаем ширину на основе наибольшей длины текста
-    int textWidth = std::max(fm.horizontalAdvance(m_textPositive), fm.horizontalAdvance(m_textNegative));
-    int margin = 10; // внутренние отступы
-    int preferredWidth = textWidth + margin + m_circleDiameter + margin;
+    int margin = 10;
+    // Задаем минимальную ширину для области текста (при желании можно скорректировать)
+    int minTextWidth = 100;
+    // Выбираем наибольшую ширину текста из двух состояний или минимальное значение
+    int desiredTextWidth = std::max({fm.horizontalAdvance(m_textPositive),
+                                     fm.horizontalAdvance(m_textNegative),
+                                     minTextWidth});
+    // Рекомендуемая ширина: отступ слева + область для текста + отступ между текстом и кругом + диаметр круга + отступ справа
+    int preferredWidth = margin + desiredTextWidth + margin + m_circleDiameter + margin;
     int preferredHeight = std::max(m_circleDiameter, fm.height()) + 2 * margin;
     return QSize(preferredWidth, preferredHeight);
 }
@@ -128,28 +199,30 @@ void StatusCircle::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    // Выбираем текст для отображения
+    // Выбираем отображаемый текст в зависимости от animationValue
     QString displayText = (m_animationValue >= 0.5) ? m_textPositive : m_textNegative;
 
-    // Интерполяция цвета
+    // Интерполяция цвета на основе animationValue
     int r = static_cast<int>(m_colorNegative.red()   + (m_colorPositive.red()   - m_colorNegative.red()) * m_animationValue);
     int g = static_cast<int>(m_colorNegative.green() + (m_colorPositive.green() - m_colorNegative.green()) * m_animationValue);
     int b = static_cast<int>(m_colorNegative.blue()  + (m_colorPositive.blue()  - m_colorNegative.blue()) * m_animationValue);
     QColor currentColor(r, g, b);
 
     QFontMetrics fm(font());
-    int textWidth = fm.horizontalAdvance(displayText);
-    int textHeight = fm.height();
-
     int margin = 10;
-    int textX = margin;
-    int textY = (height() - textHeight) / 2 + fm.ascent();
 
-    // Рисуем текст слева
-    painter.drawText(textX, textY, displayText);
+    // Фиксированное положение круга: отступ от правого края
+    int circleX = width() - margin - m_circleDiameter;
+    
+    // Определяем прямоугольную область для текста: отступ слева до области, в которой начинается круг
+    QRect textRect(margin, 0, circleX - 2 * margin, height());
+    // Если текст не помещается, обрезаем его с троеточием
+    QString elidedText = fm.elidedText(displayText, Qt::ElideRight, textRect.width());
+    
+    // Отрисовка текста по левому краю области, вертикально по центру
+    painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, elidedText);
 
-    // Расчёт позиции для круга: справа от текста
-    int circleX = textX + textWidth + margin;
+    // Расчет вертикального выравнивания круга
     int circleY = (height() - m_circleDiameter) / 2;
     QRect circleRect(circleX, circleY, m_circleDiameter, m_circleDiameter);
 
@@ -157,65 +230,3 @@ void StatusCircle::paintEvent(QPaintEvent *event)
     painter.setBrush(currentColor);
     painter.drawEllipse(circleRect);
 }
-
-
-
-#ifndef STATUSCIRCLE_H
-#define STATUSCIRCLE_H
-
-#include <QWidget>
-#include <QColor>
-#include <QString>
-#include <QPropertyAnimation>
-
-class StatusCircle : public QWidget
-{
-    Q_OBJECT
-    Q_PROPERTY(qreal animationValue READ animationValue WRITE setAnimationValue)
-
-public:
-    explicit StatusCircle(QWidget *parent = nullptr);
-
-    // Методы для настройки внешнего вида
-    void setCircleDiameter(int diameter);
-    int circleDiameter() const;
-
-    void setPositiveColor(const QColor &color);
-    QColor positiveColor() const;
-
-    void setNegativeColor(const QColor &color);
-    QColor negativeColor() const;
-
-    void setPositiveText(const QString &text);
-    QString positiveText() const;
-
-    void setNegativeText(const QString &text);
-    QString negativeText() const;
-
-    // Переключение состояния (true – положительное, false – отрицательное)
-    void setState(bool state);
-    bool state() const;
-
-    // Свойство для анимации перехода (0.0 - отрицательное, 1.0 - положительное)
-    qreal animationValue() const;
-    void setAnimationValue(qreal value);
-
-    // Рекомендуемый размер виджета для корректного отображения текста и круга
-    QSize sizeHint() const override;
-
-protected:
-    void paintEvent(QPaintEvent *event) override;
-
-private:
-    bool m_state;                // Текущее состояние
-    qreal m_animationValue;      // Значение для анимации
-    int m_circleDiameter;        // Диаметр круга
-    QColor m_colorPositive;      // Цвет положительного состояния
-    QColor m_colorNegative;      // Цвет отрицательного состояния
-    QString m_textPositive;      // Текст положительного состояния
-    QString m_textNegative;      // Текст отрицательного состояния
-
-    QPropertyAnimation *m_animation; // Анимация изменения animationValue
-};
-
-#endif // STATUSCIRCLE_H
