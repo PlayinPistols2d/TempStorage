@@ -8,6 +8,7 @@
 class QLineEdit;
 class QDateTimeEdit;
 class QLabel;
+class QFrame;
 
 class CustomDateWidget : public QWidget
 {
@@ -58,12 +59,12 @@ private:
     QLabel *modeLabel;         // Метка отображения текущего режима
     QLineEdit *lineEdit;         // Обычный QLineEdit (виден при отсутствии режима даты)
     QDateTimeEdit *dateTimeEdit; // Виджет выбора даты (виден при установленном режиме даты)
-    DateMode currentMode;        // Текущий режим обработки даты
+    QFrame *frame;             // Фрейм для визуального обрамления виджета
+
+    DateMode currentMode;      // Текущий режим обработки даты
 };
 
 #endif // CUSTOMDATEWIDGET_H
-
-
 
 
 
@@ -73,6 +74,7 @@ private:
 #include <QDateTimeEdit>
 #include <QLabel>
 #include <QVBoxLayout>
+#include <QFrame>
 #include <QDateTime>
 #include <QDate>
 #include <QString>
@@ -81,23 +83,36 @@ private:
 CustomDateWidget::CustomDateWidget(QWidget *parent)
     : QWidget(parent), currentMode(NoneMode)
 {
-    // Создание компоновки и элементов управления
-    QVBoxLayout *layout = new QVBoxLayout(this);
+    // Основная компоновка виджета
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
-    modeLabel = new QLabel("Текущий режим: не установлен", this);
-    layout->addWidget(modeLabel);
+    // Создаем QFrame для обрамления и настраиваем его внешний вид
+    frame = new QFrame(this);
+    frame->setFrameShape(QFrame::StyledPanel);
+    frame->setFrameShadow(QFrame::Raised);
 
-    // Изначально отображается обычное текстовое поле
-    lineEdit = new QLineEdit(this);
-    layout->addWidget(lineEdit);
+    // Вложенная компоновка для содержимого внутри рамки
+    QVBoxLayout *frameLayout = new QVBoxLayout(frame);
 
-    // Виджет для выбора даты, по умолчанию скрыт
-    dateTimeEdit = new QDateTimeEdit(this);
+    // Метка для отображения текущего режима
+    modeLabel = new QLabel("Текущий режим: не установлен", frame);
+    frameLayout->addWidget(modeLabel);
+
+    // Обычный QLineEdit (отображается, если режим не определён)
+    lineEdit = new QLineEdit(frame);
+    frameLayout->addWidget(lineEdit);
+
+    // Виджет выбора даты, включающий секунды в формате
+    dateTimeEdit = new QDateTimeEdit(frame);
     dateTimeEdit->setCalendarPopup(true);
-    layout->addWidget(dateTimeEdit);
-    dateTimeEdit->hide();
+    // Задаем формат, включающий секунды
+    dateTimeEdit->setDisplayFormat("dd.MM.yyyy HH:mm:ss");
+    frameLayout->addWidget(dateTimeEdit);
+    dateTimeEdit->hide(); // скрываем по умолчанию
 
-    setLayout(layout);
+    // Добавляем фрейм в основную компоновку
+    mainLayout->addWidget(frame);
+    setLayout(mainLayout);
 }
 
 void CustomDateWidget::setMode(const QString &modeStr)
@@ -129,13 +144,13 @@ void CustomDateWidget::setMode(const QString &modeStr)
 
 void CustomDateWidget::updateWidgetDisplay()
 {
-    // Если выбран один из режимов даты – показываем dateTimeEdit, скрывая lineEdit.
+    // При выборе одного из режимов даты скрываем lineEdit и показываем dateTimeEdit
     if (currentMode == DtMode || currentMode == UdtMode || currentMode == MudtMode)
     {
         lineEdit->hide();
         dateTimeEdit->show();
     }
-    else // Иначе – показываем lineEdit, скрывая dateTimeEdit.
+    else // иначе отображаем lineEdit и скрываем dateTimeEdit
     {
         dateTimeEdit->hide();
         lineEdit->show();
@@ -188,7 +203,7 @@ QDateTime CustomDateWidget::modifiedJulianToQDateTime(double mjd)
 
 QVariant CustomDateWidget::convertDateValue(const QDateTime &dt)
 {
-    // В зависимости от режима возвращается числовое значение в нужном формате.
+    // В зависимости от выбранного режима возвращается числовое представление даты.
     switch (currentMode)
     {
         case DtMode:
