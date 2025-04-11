@@ -1,83 +1,3 @@
-#ifndef CUSTOMDATEWIDGET_H
-#define CUSTOMDATEWIDGET_H
-
-#include <QWidget>
-#include <QString>
-#include <QDateTime>
-
-class QLineEdit;
-class QDateTimeEdit;
-class QLabel;
-class QFrame;
-
-class CustomDateWidget : public QWidget
-{
-    Q_OBJECT
-
-public:
-    // Режимы представления даты
-    enum DateMode {
-        DtMode,    // dt: количество секунд с 01.01.2000
-        UdtMode,   // udt: юлианская дата (double)
-        MudtMode,  // mudt: модифицированная юлианская дата (double)
-        NoneMode   // режим не установлен
-    };
-
-    explicit CustomDateWidget(QWidget *parent = nullptr);
-
-    // Устанавливает режим по строке (ожидается полное совпадение со значениями "dt", "udt" или "mudt")
-    void setMode(const QString &modeStr);
-
-    // Функция, возвращающая текущее значение даты в числовом формате в виде строки,
-    // соответствующему выбранному режиму (dt, udt или mudt)
-    QString getNumericValue();
-
-    // Функция, устанавливающая значение даты в виджете, принимая входную строку,
-    // содержащую числовое значение, и используя соответствующий режим для преобразования
-    void setNumericValue(const QString &value);
-
-    // Функции преобразования даты в числовое значение и наоборот
-    QVariant convertDateValue(const QDateTime &dt);
-    QDateTime convertToQDateTime(const QVariant &value);
-
-    // Статические функции для конвертации дат
-
-    // Преобразование: dt (секунды с 01.01.2000) -> QDateTime
-    static QDateTime dtToQDateTime(qint64 seconds);
-
-    // Преобразование: QDateTime -> dt (секунды с 01.01.2000)
-    static qint64 QDateTimeToDt(const QDateTime &dt);
-
-    // Преобразование: QDateTime -> юлианская дата (double)
-    // Вычисление выполняется с использованием миллисекунд для повышения точности.
-    static double qDateTimeToJulian(const QDateTime &dt);
-
-    // Преобразование: юлианская дата (double) -> QDateTime
-    static QDateTime julianToQDateTime(double jd);
-
-    // Преобразование: QDateTime -> модифицированная юлианская дата (double)
-    static double qDateTimeToModifiedJulian(const QDateTime &dt);
-
-    // Преобразование: модифицированная юлианская дата (double) -> QDateTime
-    static QDateTime modifiedJulianToQDateTime(double mjd);
-
-private:
-    // Обновляет видимость элементов в зависимости от выбранного режима
-    void updateWidgetDisplay();
-
-    QLabel *modeLabel;         // Метка отображения текущего режима
-    QLineEdit *lineEdit;       // Обычный QLineEdit (виден при отсутствии режима даты)
-    QDateTimeEdit *dateTimeEdit; // Виджет выбора даты (виден при установленном режиме даты)
-    QFrame *frame;             // Фрейм для визуального обрамления виджета
-
-    DateMode currentMode;      // Текущий режим обработки даты
-};
-
-#endif // CUSTOMDATEWIDGET_H
-
-
-
-
 #include "CustomDateWidget.h"
 
 #include <QLineEdit>
@@ -169,7 +89,7 @@ void CustomDateWidget::updateWidgetDisplay()
 QString CustomDateWidget::getNumericValue()
 {
     QVariant numericValue = convertDateValue(dateTimeEdit->dateTime());
-    // Если режим dt – это целое число, иначе формата double с 8 знаками после запятой
+    // Если режим dt – выводим целое число, иначе формат double с 8 знаками после запятой
     if (currentMode == DtMode)
     {
         return QString::number(numericValue.toLongLong());
@@ -187,12 +107,10 @@ void CustomDateWidget::setNumericValue(const QString &value)
     QVariant val;
     if (currentMode == DtMode)
     {
-        // преобразуем строку в целое число (секунды)
         val = QVariant(value.toLongLong());
     }
     else if (currentMode == UdtMode || currentMode == MudtMode)
     {
-        // преобразуем строку в double для udt/mudt
         val = QVariant(value.toDouble());
     }
     QDateTime dt = convertToQDateTime(val);
@@ -217,19 +135,30 @@ qint64 CustomDateWidget::QDateTimeToDt(const QDateTime &dt)
 }
 
 // Преобразование: QDateTime -> юлианская дата (double)
-// Для повышения точности используется количество миллисекунд с Unix эпохи
+// Для вычисления локального юлианского дня учитывается смещение от UTC.
 double CustomDateWidget::qDateTimeToJulian(const QDateTime &dt)
 {
-    QDateTime utc = dt.toUTC();
-    double jd = (utc.toMSecsSinceEpoch() / 86400000.0) + 2440587.5;
+    // Получаем количество миллисекунд от Unix-эпохи (1970-01-01 00:00:00 UTC)
+    qint64 msUtc = dt.toMSecsSinceEpoch();
+    // Учитываем локальное смещение в миллисекундах (offsetFromUtc возвращает разницу в секундах)
+    qint64 offsetMs = dt.offsetFromUtc() * 1000LL;
+    // Локальное количество миллисекунд: фактически время, которое отображается локально
+    double localMs = msUtc + offsetMs;
+    // Вычисляем юлианскую дату: количество дней с 1970-01-01 плюс константа,
+    // соответствующая юлианской дате Unix-эпохи (2440587.5)
+    double jd = (localMs / 86400000.0) + 2440587.5;
     return jd;
 }
 
 // Преобразование: юлианская дата (double) -> QDateTime
+// Обратное преобразование выполняется так, чтобы полученный QDateTime был в локальном времени.
 QDateTime CustomDateWidget::julianToQDateTime(double jd)
 {
-    double msecs = (jd - 2440587.5) * 86400000.0;
-    return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(qRound64(msecs)), Qt::UTC);
+    // Вычисляем локальное время в миллисекундах: (jd - 2440587.5) * msec в сутках
+    qint64 localMs = static_cast<qint64>(qRound64((jd - 2440587.5) * 86400000.0));
+    // Получаем QDateTime в UTC, затем переводим в локальное время
+    QDateTime dt = QDateTime::fromMSecsSinceEpoch(localMs, Qt::UTC);
+    return dt.toLocalTime();
 }
 
 // Преобразование: QDateTime -> модифицированная юлианская дата (double)
@@ -247,7 +176,7 @@ QDateTime CustomDateWidget::modifiedJulianToQDateTime(double mjd)
     return julianToQDateTime(jd);
 }
 
-// Преобразование даты в числовое значение в зависимости от текущего режима
+// Преобразование даты в числовое значение в зависимости от текущего режима.
 QVariant CustomDateWidget::convertDateValue(const QDateTime &dt)
 {
     switch (currentMode)
@@ -263,7 +192,7 @@ QVariant CustomDateWidget::convertDateValue(const QDateTime &dt)
     }
 }
 
-// Преобразование входного числового значения в QDateTime в зависимости от текущего режима
+// Преобразование входного числового значения в QDateTime в зависимости от текущего режима.
 QDateTime CustomDateWidget::convertToQDateTime(const QVariant &value)
 {
     if (!value.isValid())
