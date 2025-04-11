@@ -1,189 +1,221 @@
-#include <QLineEdit>
+#ifndef CUSTOMDATEWIDGET_H
+#define CUSTOMDATEWIDGET_H
+
 #include <QWidget>
-#include <QString>
+#include <QVariant>
+#include <QDateTime>
+
+class QLineEdit;
+class QDateTimeEdit;
+class QLabel;
+
+class CustomDateWidget : public QWidget
+{
+    Q_OBJECT
+
+public:
+    // Режимы представления даты
+    enum DateMode {
+        DtMode,    // dt: количество секунд с 01.01.2000
+        UdtMode,   // udt: юлианская дата (double)
+        MudtMode,  // mudt: модифицированная юлианская дата (double)
+        NoneMode   // режим не установлен
+    };
+
+    explicit CustomDateWidget(QWidget *parent = nullptr);
+
+    // Устанавливает режим по строке (ищем подстроки "dt", "udt" или "mudt")
+    void setMode(const QString &modeStr);
+
+    // Функции преобразования даты в числовое значение и наоборот
+    QVariant convertDateValue(const QDateTime &dt);
+    QDateTime convertToQDateTime(const QVariant &value);
+
+    // Статические функции для конвертации дат
+
+    // Преобразование: dt (секунды с 01.01.2000) -> QDateTime
+    static QDateTime dtToQDateTime(qint64 seconds);
+
+    // Преобразование: QDateTime -> dt (секунды с 01.01.2000)
+    static qint64 QDateTimeToDt(const QDateTime &dt);
+
+    // Преобразование: QDateTime -> юлианская дата (double)
+    static double qDateTimeToJulian(const QDateTime &dt);
+
+    // Преобразование: юлианская дата (double) -> QDateTime
+    static QDateTime julianToQDateTime(double jd);
+
+    // Преобразование: QDateTime -> модифицированная юлианская дата (double)
+    static double qDateTimeToModifiedJulian(const QDateTime &dt);
+
+    // Преобразование: модифицированная юлианская дата (double) -> QDateTime
+    static QDateTime modifiedJulianToQDateTime(double mjd);
+
+private:
+    // Обновляет видимость элементов в зависимости от выбранного режима
+    void updateWidgetDisplay();
+
+    QLabel *modeLabel;         // Метка отображения текущего режима
+    QLineEdit *lineEdit;         // Обычный QLineEdit (виден при отсутствии режима даты)
+    QDateTimeEdit *dateTimeEdit; // Виджет выбора даты (виден при установленном режиме даты)
+    DateMode currentMode;        // Текущий режим обработки даты
+};
+
+#endif // CUSTOMDATEWIDGET_H
+
+
+
+
+
+#include "CustomDateWidget.h"
+
+#include <QLineEdit>
+#include <QDateTimeEdit>
+#include <QLabel>
+#include <QVBoxLayout>
 #include <QDateTime>
 #include <QDate>
-#include <QTime>
+#include <QString>
 #include <QtMath>
-#include <QDebug>
 
-/*
- * Функция обработки строки.
- * При обнаружении нужного ключевого слова скрывает QLineEdit и показывает
- * соответствующий виджет для работы с датой в заданном формате.
- */
-void handleDateInput(const QString &input,
-                     QLineEdit* lineEdit,
-                     QWidget* dtWidget,    // виджет для формата dt (секунды с 01.01.2000)
-                     QWidget* udtWidget,   // виджет для формата udt (юлианская дата)
-                     QWidget* mudtWidget)  // виджет для формата mudt (модифицированная юлианская дата)
+CustomDateWidget::CustomDateWidget(QWidget *parent)
+    : QWidget(parent), currentMode(NoneMode)
 {
-    // Приоритет поиска: сначала ищем более специфичные варианты (mudt, udt),
-    // затем – более общий (dt). Это нужно, чтобы не перепутать udt или mudt с dt.
-    if(input.contains("mudt", Qt::CaseInsensitive)) {
-         lineEdit->hide();
-         mudtWidget->show();
-         dtWidget->hide();
-         udtWidget->hide();
-         qDebug() << "Показан виджет для модифицированной юлианской даты (mudt)";
-    } else if(input.contains("udt", Qt::CaseInsensitive)) {
-         lineEdit->hide();
-         udtWidget->show();
-         dtWidget->hide();
-         mudtWidget->hide();
-         qDebug() << "Показан виджет для юлианской даты (udt)";
-    } else if(input.contains("dt", Qt::CaseInsensitive)) {
-         lineEdit->hide();
-         dtWidget->show();
-         udtWidget->hide();
-         mudtWidget->hide();
-         qDebug() << "Показан виджет для dt (секунды с 01.01.2000)";
-    } else {
-         // Если ключевые фразы не обнаружены – показываем стандартный QLineEdit
-         lineEdit->show();
-         dtWidget->hide();
-         udtWidget->hide();
-         mudtWidget->hide();
-         qDebug() << "Ключевые фразы не найдены. Показан стандартный lineEdit.";
+    // Создание компоновки и элементов управления
+    QVBoxLayout *layout = new QVBoxLayout(this);
+
+    modeLabel = new QLabel("Текущий режим: не установлен", this);
+    layout->addWidget(modeLabel);
+
+    // Изначально отображается обычное текстовое поле
+    lineEdit = new QLineEdit(this);
+    layout->addWidget(lineEdit);
+
+    // Виджет для выбора даты, по умолчанию скрыт
+    dateTimeEdit = new QDateTimeEdit(this);
+    dateTimeEdit->setCalendarPopup(true);
+    layout->addWidget(dateTimeEdit);
+    dateTimeEdit->hide();
+
+    setLayout(layout);
+}
+
+void CustomDateWidget::setMode(const QString &modeStr)
+{
+    // Определяем режим в зависимости от содержимого строки
+    if (modeStr.contains("dt", Qt::CaseInsensitive))
+    {
+        currentMode = DtMode;
+        modeLabel->setText("Текущий режим: dt (секунд с 01.01.2000)");
+    }
+    else if (modeStr.contains("udt", Qt::CaseInsensitive))
+    {
+        currentMode = UdtMode;
+        modeLabel->setText("Текущий режим: udt (юлианская дата)");
+    }
+    else if (modeStr.contains("mudt", Qt::CaseInsensitive))
+    {
+        currentMode = MudtMode;
+        modeLabel->setText("Текущий режим: mudt (модифицированная юлианская дата)");
+    }
+    else
+    {
+        currentMode = NoneMode;
+        modeLabel->setText("Текущий режим: не определён");
+    }
+
+    updateWidgetDisplay();
+}
+
+void CustomDateWidget::updateWidgetDisplay()
+{
+    // Если выбран один из режимов даты – показываем dateTimeEdit, скрывая lineEdit.
+    if (currentMode == DtMode || currentMode == UdtMode || currentMode == MudtMode)
+    {
+        lineEdit->hide();
+        dateTimeEdit->show();
+    }
+    else // Иначе – показываем lineEdit, скрывая dateTimeEdit.
+    {
+        dateTimeEdit->hide();
+        lineEdit->show();
     }
 }
 
-/*
- * Функции для преобразования дат.
- *
- * 1. dt (double) представляет собой количество секунд, прошедших от 01.01.2000 00:00:00.
- *    Используем QDateTime для удобства работы с датой/временем.
- */
-
-// Преобразование dt -> QDateTime (dt: кол-во секунд от базовой даты)
-QDateTime dtToQDateTime(double dt)
+// Статическая функция: преобразует количество секунд (от 01.01.2000)
+// в QDateTime.
+QDateTime CustomDateWidget::dtToQDateTime(qint64 seconds)
 {
-    QDateTime base(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-    return base.addSecs(static_cast<qint64>(dt));
+    QDateTime ref(QDate(2000, 1, 1), QTime(0, 0, 0));
+    return ref.addSecs(seconds);
 }
 
-// Преобразование QDateTime -> dt
-double qDateTimeToDt(const QDateTime &dateTime)
+// Статическая функция: возвращает число секунд между dt и 01.01.2000.
+qint64 CustomDateWidget::QDateTimeToDt(const QDateTime &dt)
 {
-    QDateTime base(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-    return base.secsTo(dateTime);
+    QDateTime ref(QDate(2000, 1, 1), QTime(0, 0, 0));
+    return ref.secsTo(dt);
 }
 
-/*
- * 2. Перевод QDateTime в юлианскую дату (JD) и обратно.
- *
- * Формула вычисления JD для даты в григорианском календаре:
- *   JD = ⌊365.25*(year + 4716)⌋ + ⌊30.6001*(month+1)⌋ + day + B - 1524.5
- * где B = 2 - A + ⌊A/4⌋, A = ⌊year/100⌋.
- * Временная дробная часть добавляется в виде доли суток.
- */
-
-// Преобразование QDateTime -> юлианская дата (JD)
-double qDateTimeToJD(const QDateTime &dateTime)
+// Статическая функция: преобразует QDateTime в юлианскую дату (double).
+double CustomDateWidget::qDateTimeToJulian(const QDateTime &dt)
 {
-    QDate date = dateTime.date();
-    int year = date.year();
-    int month = date.month();
-    int day = date.day();
-
-    // Если месяц - январь или февраль, корректируем год и месяц
-    if (month <= 2) {
-        year -= 1;
-        month += 12;
-    }
-    int A = year / 100;
-    int B = 2 - A + (A / 4);
-
-    // Вычисляем JD для 0 часов UT
-    double jd = int(365.25 * (year + 4716)) + int(30.6001 * (month + 1)) + day + B - 1524.5;
-
-    // Добавляем дробную часть дня с учетом времени
-    QTime time = dateTime.time();
-    double dayFraction = (time.hour() + time.minute() / 60.0 + time.second() / 3600.0) / 24.0;
-    return jd + dayFraction;
+    QDateTime utc = dt.toUTC();
+    double jd = (utc.toSecsSinceEpoch() / 86400.0) + 2440587.5;
+    return jd;
 }
 
-// Преобразование юлианской даты (JD) -> QDateTime
-QDateTime jdToQDateTime(double jd)
+// Статическая функция: преобразует юлианскую дату (double) в QDateTime.
+QDateTime CustomDateWidget::julianToQDateTime(double jd)
 {
-    // Алгоритм перевода JD в григорианскую дату (с корректировкой)
-    double Z = std::floor(jd + 0.5);
-    double F = (jd + 0.5) - Z;
-    double A = Z;
-    if(Z >= 2299161) {
-        double alpha = std::floor((Z - 1867216.25) / 36524.25);
-        A = Z + 1 + alpha - std::floor(alpha / 4);
-    }
-    double B = A + 1524;
-    double C = std::floor((B - 122.1) / 365.25);
-    double D = std::floor(365.25 * C);
-    double E = std::floor((B - D) / 30.6001);
-    int day = static_cast<int>(B - D - std::floor(30.6001 * E));
-    int month = (E < 14) ? static_cast<int>(E - 1) : static_cast<int>(E - 13);
-    int year = (month > 2) ? static_cast<int>(C - 4716) : static_cast<int>(C - 4715);
-
-    // Вычисляем время (дробная часть суток)
-    double secondsInDay = F * 86400;
-    int hours = static_cast<int>(secondsInDay / 3600);
-    int minutes = static_cast<int>((secondsInDay - hours * 3600) / 60);
-    int seconds = static_cast<int>(secondsInDay - hours * 3600 - minutes * 60);
-
-    QDate date(year, month, day);
-    QTime time(hours, minutes, seconds);
-    return QDateTime(date, time, Qt::UTC);
+    double secs = (jd - 2440587.5) * 86400.0;
+    return QDateTime::fromSecsSinceEpoch(static_cast<qint64>(qRound64(secs)), Qt::UTC);
 }
 
-/*
- * 3. Преобразование в модифицированную юлианскую дату (MJD) и обратно.
- * MJD определяется как: MJD = JD - 2400000.5
- */
-
-// Преобразование QDateTime -> MJD (модифицированная юлианская дата)
-double qDateTimeToMJD(const QDateTime &dateTime)
+// Статическая функция: преобразует QDateTime в модифицированную юлианскую дату (MJD).
+double CustomDateWidget::qDateTimeToModifiedJulian(const QDateTime &dt)
 {
-    double jd = qDateTimeToJD(dateTime);
+    double jd = qDateTimeToJulian(dt);
     return jd - 2400000.5;
 }
 
-// Преобразование MJD -> QDateTime
-QDateTime mjdToQDateTime(double mjd)
+// Статическая функция: преобразует модифицированную юлианскую дату (MJD) в QDateTime.
+QDateTime CustomDateWidget::modifiedJulianToQDateTime(double mjd)
 {
     double jd = mjd + 2400000.5;
-    return jdToQDateTime(jd);
+    return julianToQDateTime(jd);
 }
 
-/*
- * Пример использования:
- *
- * Предположим, что у вас есть объекты:
- *     QLineEdit*      myLineEdit;
- *     QWidget*        dtWidget;
- *     QWidget*        udtWidget;
- *     QWidget*        mudtWidget;
- *
- * Тогда, при вводе строки можно вызвать:
- *
- *     handleDateInput(userInputString, myLineEdit, dtWidget, udtWidget, mudtWidget);
- *
- * Для преобразования даты:
- *
- *     // dt -> QDateTime
- *     QDateTime dtTime = dtToQDateTime(3600); // например, 3600 секунд после 01.01.2000
- *
- *     // QDateTime -> dt
- *     double dtVal = qDateTimeToDt(QDateTime::currentDateTimeUtc());
- *
- *     // QDateTime -> юлианская дата (udt)
- *     double jd = qDateTimeToJD(QDateTime::currentDateTimeUtc());
- *
- *     // Юлианская дата -> QDateTime
- *     QDateTime fromJD = jdToQDateTime(jd);
- *
- *     // QDateTime -> MJD
- *     double mjd = qDateTimeToMJD(QDateTime::currentDateTimeUtc());
- *
- *     // MJD -> QDateTime
- *     QDateTime fromMJD = mjdToQDateTime(mjd);
- *
- * Эти функции можно расширять, дополнять проверками и подстраивать под особенности вашего интерфейса.
- */
+QVariant CustomDateWidget::convertDateValue(const QDateTime &dt)
+{
+    // В зависимости от режима возвращается числовое значение в нужном формате.
+    switch (currentMode)
+    {
+        case DtMode:
+            return QVariant::fromValue(QDateTimeToDt(dt));
+        case UdtMode:
+            return QVariant::fromValue(qDateTimeToJulian(dt));
+        case MudtMode:
+            return QVariant::fromValue(qDateTimeToModifiedJulian(dt));
+        default:
+            return QVariant();
+    }
+}
+
+QDateTime CustomDateWidget::convertToQDateTime(const QVariant &value)
+{
+    if (!value.isValid())
+        return QDateTime();
+
+    switch (currentMode)
+    {
+        case DtMode:
+            return dtToQDateTime(value.toLongLong());
+        case UdtMode:
+            return julianToQDateTime(value.toDouble());
+        case MudtMode:
+            return modifiedJulianToQDateTime(value.toDouble());
+        default:
+            return QDateTime();
+    }
+}
