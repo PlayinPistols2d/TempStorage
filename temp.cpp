@@ -26,6 +26,9 @@ public:
     // Set the date from a numeric value in the current type
     void setNumericValue(double value);
 
+    // Parse input string and set the value based on current type
+    bool parseAndSetValue(const QString &input);
+
     // Direct access to the QDateTime
     QDateTime dateTime() const;
     void setDateTime(const QDateTime &dt);
@@ -44,9 +47,9 @@ private:
 
 
 
-
 #include "CustomDateWidget.h"
 #include <cmath> // for floor
+#include <QStringList>
 
 CustomDateWidget::CustomDateWidget(QWidget *parent) : QWidget(parent), currentType(DT) {
     // Create the QDateTimeEdit with calendar popup
@@ -134,6 +137,54 @@ void CustomDateWidget::setNumericValue(double value) {
         }
     }
     dateTimeEdit->setDateTime(dt);
+}
+
+bool CustomDateWidget::parseAndSetValue(const QString &input) {
+    // Expected format: "dt=<value>,udt=<value>,mudt=<value>"
+    QStringList parts = input.split(',', Qt::SkipEmptyParts);
+    double dtValue = 0.0, udtValue = 0.0, mudtValue = 0.0;
+    bool foundDt = false, foundUdt = false, foundMudt = false;
+
+    for (const QString &part : parts) {
+        QString trimmed = part.trimmed();
+        if (trimmed.startsWith("dt=", Qt::CaseInsensitive)) {
+            bool ok;
+            dtValue = trimmed.mid(3).toDouble(&ok);
+            if (ok) foundDt = true;
+        } else if (trimmed.startsWith("udt=", Qt::CaseInsensitive)) {
+            bool ok;
+            udtValue = trimmed.mid(4).toDouble(&ok);
+            if (ok) foundUdt = true;
+        } else if (trimmed.startsWith("mudt=", Qt::CaseInsensitive)) {
+            bool ok;
+            mudtValue = trimmed.mid(5).toDouble(&ok);
+            if (ok) foundMudt = true;
+        }
+    }
+
+    // Check if the required value was found and set it
+    switch (currentType) {
+        case DT:
+            if (foundDt) {
+                setNumericValue(dtValue);
+                return true;
+            }
+            break;
+        case UDT:
+            if (foundUdt) {
+                setNumericValue(udtValue);
+                return true;
+            }
+            break;
+        case MUDT:
+            if (foundMudt) {
+                setNumericValue(mudtValue);
+                return true;
+            }
+            break;
+    }
+
+    return false; // Return false if the relevant value wasn't found or parsed
 }
 
 QDateTime CustomDateWidget::dateTime() const {
