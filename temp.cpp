@@ -16,18 +16,15 @@ class CustomDateWidget : public QWidget {
 public:
     explicit CustomDateWidget(QWidget *parent = nullptr);
 
-    // Set and get the current date type
-    void setDateType(DateType type);
+    // Set and get the current date type using exact string ("dt", "udt", "mudt")
+    bool setDateType(const QString &type);
     DateType dateType() const;
 
-    // Get the date as a numeric value in the current type
-    double getNumericValue() const;
+    // Get the date as a string in the current type
+    QString getNumericValue() const;
 
-    // Set the date from a numeric value in the current type
-    void setNumericValue(double value);
-
-    // Parse input string and set the value based on current type
-    bool parseAndSetValue(const QString &input);
+    // Set the date from a string in the current type
+    void setNumericValue(const QString &value);
 
     // Direct access to the QDateTime
     QDateTime dateTime() const;
@@ -38,6 +35,16 @@ signals:
     void valueChanged();
 
 private:
+    // Conversion functions: QDateTime to value
+    QString dtToString(const QDateTime &dt) const;
+    QString udtToString(const QDateTime &dt) const;
+    QString mudtToString(const QDateTime &dt) const;
+
+    // Conversion functions: Value to QDateTime
+    QDateTime stringToDt(const QString &value) const;
+    QDateTime stringToUdt(const QString &value) const;
+    QDateTime stringToMudt(const QString &value) const;
+
     QDateTimeEdit *dateTimeEdit;
     DateType currentType;
 };
@@ -47,9 +54,11 @@ private:
 
 
 
+
+
+
 #include "CustomDateWidget.h"
 #include <cmath> // for floor
-#include <QStringList>
 
 CustomDateWidget::CustomDateWidget(QWidget *parent) : QWidget(parent), currentType(DT) {
     // Create the QDateTimeEdit with calendar popup
@@ -66,125 +75,54 @@ CustomDateWidget::CustomDateWidget(QWidget *parent) : QWidget(parent), currentTy
     connect(dateTimeEdit, &QDateTimeEdit::dateTimeChanged, this, &CustomDateWidget::valueChanged);
 }
 
-void CustomDateWidget::setDateType(DateType type) {
-    currentType = type;
+bool CustomDateWidget::setDateType(const QString &type) {
+    QString lowerType = type.toLower().trimmed();
+    if (lowerType == "dt") {
+        currentType = DT;
+        return true;
+    } else if (lowerType == "udt") {
+        currentType = UDT;
+        return true;
+    } else if (lowerType == "mudt") {
+        currentType = MUDT;
+        return true;
+    }
+    return false; // Invalid type
 }
 
 DateType CustomDateWidget::dateType() const {
     return currentType;
 }
 
-double CustomDateWidget::getNumericValue() const {
+QString CustomDateWidget::getNumericValue() const {
     QDateTime dt = dateTimeEdit->dateTime();
     switch (currentType) {
-        case DT: {
-            // Seconds since 00:00:00 January 1, 2000 UTC
-            QDateTime epoch(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-            qint64 secs = epoch.secsTo(dt);
-            return static_cast<double>(secs);
-        }
-        case UDT: {
-            // Julian date: days since noon January 1, 4713 BCE
-            QDate date = dt.date();
-            QTime time = dt.time();
-            // Qt's toJulianDay starts at midnight, adjust to astronomical JD
-            double jd = date.toJulianDay() - 0.5 + time.msecsSinceStartOfDay() / 86400000.0;
-            return jd;
-        }
-        case MUDT: {
-            // Modified Julian date: JD - 2400000.5
-            QDate date = dt.date();
-            QTime time = dt.time();
-            double jd = date.toJulianDay() - 0.5 + time.msecsSinceStartOfDay() / 86400000.0;
-            return jd - 2400000.5;
-        }
+        case DT:
+            return dtToString(dt);
+        case UDT:
+            return udtToString(dt);
+        case MUDT:
+            return mudtToString(dt);
     }
-    return 0.0; // Default return value
+    return QString(); // Default empty string
 }
 
-void CustomDateWidget::setNumericValue(double value) {
+void CustomDateWidget::setNumericValue(const QString &value) {
     QDateTime dt;
     switch (currentType) {
-        case DT: {
-            // Interpret value as seconds since 00:00:00 January 1, 2000 UTC
-            uint secs = static_cast<uint>(value);
-            QDateTime epoch(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-            dt = epoch.addSecs(secs);
-            break;
-        }
-        case UDT: {
-            // Interpret value as Julian date
-            double jd = value;
-            int qt_jd = static_cast<int>(std::floor(jd + 0.5));
-            double time_frac = jd - (qt_jd - 0.5);
-            qint64 msecs = qRound64(time_frac * 86400000.0);
-            QDate date = QDate::fromJulianDay(qt_jd);
-            QTime time = QTime::fromMSecsSinceStartOfDay(msecs);
-            dt = QDateTime(date, time, Qt::UTC);
-            break;
-        }
-        case MUDT: {
-            // Interpret value as modified Julian date
-            double mudt = value;
-            double jd = mudt + 2400000.5;
-            int qt_jd = static_cast<int>(std::floor(jd + 0.5));
-            double time_frac = jd - (qt_jd - 0.5);
-            qint64 msecs = qRound64(time_frac * 86400000.0);
-            QDate date = QDate::fromJulianDay(qt_jd);
-            QTime time = QTime::fromMSecsSinceStartOfDay(msecs);
-            dt = QDateTime(date, time, Qt::UTC);
-            break;
-        }
-    }
-    dateTimeEdit->setDateTime(dt);
-}
-
-bool CustomDateWidget::parseAndSetValue(const QString &input) {
-    // Expected format: "dt=<value>,udt=<value>,mudt=<value>"
-    QStringList parts = input.split(',', Qt::SkipEmptyParts);
-    double dtValue = 0.0, udtValue = 0.0, mudtValue = 0.0;
-    bool foundDt = false, foundUdt = false, foundMudt = false;
-
-    for (const QString &part : parts) {
-        QString trimmed = part.trimmed();
-        if (trimmed.startsWith("dt=", Qt::CaseInsensitive)) {
-            bool ok;
-            dtValue = trimmed.mid(3).toDouble(&ok);
-            if (ok) foundDt = true;
-        } else if (trimmed.startsWith("udt=", Qt::CaseInsensitive)) {
-            bool ok;
-            udtValue = trimmed.mid(4).toDouble(&ok);
-            if (ok) foundUdt = true;
-        } else if (trimmed.startsWith("mudt=", Qt::CaseInsensitive)) {
-            bool ok;
-            mudtValue = trimmed.mid(5).toDouble(&ok);
-            if (ok) foundMudt = true;
-        }
-    }
-
-    // Check if the required value was found and set it
-    switch (currentType) {
         case DT:
-            if (foundDt) {
-                setNumericValue(dtValue);
-                return true;
-            }
+            dt = stringToDt(value);
             break;
         case UDT:
-            if (foundUdt) {
-                setNumericValue(udtValue);
-                return true;
-            }
+            dt = stringToUdt(value);
             break;
         case MUDT:
-            if (foundMudt) {
-                setNumericValue(mudtValue);
-                return true;
-            }
+            dt = stringToMudt(value);
             break;
     }
-
-    return false; // Return false if the relevant value wasn't found or parsed
+    if (dt.isValid()) {
+        dateTimeEdit->setDateTime(dt);
+    }
 }
 
 QDateTime CustomDateWidget::dateTime() const {
@@ -193,4 +131,64 @@ QDateTime CustomDateWidget::dateTime() const {
 
 void CustomDateWidget::setDateTime(const QDateTime &dt) {
     dateTimeEdit->setDateTime(dt);
+}
+
+// Conversion: QDateTime to string for DT
+QString CustomDateWidget::dtToString(const QDateTime &dt) const {
+    QDateTime epoch(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
+    qint64 secs = epoch.secsTo(dt);
+    return QString::number(secs);
+}
+
+// Conversion: QDateTime to string for UDT
+QString CustomDateWidget::udtToString(const QDateTime &dt) const {
+    QDate date = dt.date();
+    QTime time = dt.time();
+    double jd = date.toJulianDay() - 0.5 + time.msecsSinceStartOfDay() / 86400000.0;
+    return QString::number(jd, 'f', 6); // 6 decimal places for precision
+}
+
+// Conversion: QDateTime to string for MUDT
+QString CustomDateWidget::mudtToString(const QDateTime &dt) const {
+    QDate date = dt.date();
+    QTime time = dt.time();
+    double jd = date.toJulianDay() - 0.5 + time.msecsSinceStartOfDay() / 86400000.0;
+    double mudt = jd - 2400000.5;
+    return QString::number(mudt, 'f', 6); // 6 decimal places for precision
+}
+
+// Conversion: String to QDateTime for DT
+QDateTime CustomDateWidget::stringToDt(const QString &value) const {
+    bool ok;
+    uint secs = value.toUInt(&ok);
+    if (!ok) return QDateTime();
+    QDateTime epoch(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
+    return epoch.addSecs(secs);
+}
+
+// Conversion: String to QDateTime for UDT
+QDateTime CustomDateWidget::stringToUdt(const QString &value) const {
+    bool ok;
+    double jd = value.toDouble(&ok);
+    if (!ok) return QDateTime();
+    int qt_jd = static_cast<int>(std::floor(jd + 0.5));
+    double time_frac = jd - (qt_jd - 0.5);
+    qint64 msecs = qRound64(time_frac * 86400000.0);
+    QDate date = QDate::fromJulianDay(qt_jd);
+    QTime time = QTime::fromMSecsSinceStartOfDay(msecs);
+    return QDateTime(date, time, Qt::UTC);
+}
+
+// Conversion: String to QDateTime for MUDT
+QDateTime CustomDateWidget::stringToMudt(const QString &value) const {
+    bool ok;
+    double mudt = value.toDouble(&ok);
+    if (!ok) return QDateTime();
+    double jd = mudt + 2400000.5;
+    int qt_jd = static_cast<int>(std::floor(jd + 0.5));
+    double time_frac = jd - (qt_jd - 0.5);
+    qint64 msecs = qRound64(time_frac * 86400000.0);
+    QDate date = QDate::fromJulianDay(qt_jd);
+    QTime time = QTime::fromMSecsSinceStartOfDay(msecs);
+    return QDateTime(date, time, Qt::UTC);
 }
