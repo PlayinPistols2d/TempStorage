@@ -1,53 +1,55 @@
-// --------------------- Режим dt (секунды от 01.01.2000) ---------------------
+// UDT (Юлианская дата): работает в днях, базовая дата: 4713-01-01 BCE = JD 0
+// Мы начнем с JD эпохи Unix (1970-01-01 = JD 2440587.5)
+static const QDateTime julianEpoch = QDateTime(QDate(1970, 1, 1), QTime(0, 0), Qt::UTC);
 
-// Базовая дата для режима dt (опорная дата 2000-01-01 00:00:00 UTC)
-QDateTime CustomDateWidget::dtToQDateTime(qint64 seconds)
+// MJD базируется на 1858-11-17 = JD 2400000.5
+static const QDateTime mjdEpoch = QDateTime(QDate(1858, 11, 17), QTime(0, 0, 0), Qt::UTC);
+
+double CustomDateWidget::qDateTimeToJulian(const QDateTime &dateTime)
 {
-    QDateTime ref(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-    return ref.addSecs(seconds);
-}
+    QDateTime utc = dateTime.toUTC();
 
-qint64 CustomDateWidget::QDateTimeToDt(const QDateTime &dt)
-{
-    QDateTime ref(QDate(2000, 1, 1), QTime(0, 0, 0), Qt::UTC);
-    return ref.secsTo(dt);
-}
+    qint64 days = julianEpoch.daysTo(utc);
+    qint64 msecsInDay = 86400000;
+    qint64 msecsSinceMidnight = utc.time().msecsSinceStartOfDay();
 
-// --------------------- Режим udt (Юлианская дата, JD в днях) ---------------------
+    double fractionalDay = static_cast<double>(msecsSinceMidnight) / static_cast<double>(msecsInDay);
+    double jd = 2440587.5 + static_cast<double>(days) + fractionalDay;
 
-// Преобразование QDateTime → стандартное значение JD (в днях)
-// Используется стандартная формула:  
-//  JD = (UTC_msecs / 86400000.0) + 2440587.5
-double CustomDateWidget::qDateTimeToJulian(const QDateTime &dt)
-{
-    // Приводим дату к UTC для вычислений
-    QDateTime utc = dt.toUTC();
-    double jd = static_cast<double>(utc.toMSecsSinceEpoch()) / 86400000.0 + 2440587.5;
     return jd;
 }
 
-// Обратное преобразование: JD (в днях) → QDateTime
-// По формуле: msecs = (JD - 2440587.5) * 86400000.0
 QDateTime CustomDateWidget::julianToQDateTime(double jd)
 {
-    qint64 msecs = static_cast<qint64>(qRound64((jd - 2440587.5) * 86400000.0));
-    return QDateTime::fromMSecsSinceEpoch(msecs, Qt::UTC);
+    double jdOffset = jd - 2440587.5;
+    qint64 days = static_cast<qint64>(jdOffset);
+    double fractional = jdOffset - static_cast<double>(days);
+    qint64 msecs = static_cast<qint64>(std::round(fractional * 86400000.0));
+
+    QDateTime result = julianEpoch.addDays(days).addMSecs(msecs);
+    return result;
 }
 
-// --------------------- Режим mudt (Модифицированная юлианская дата, MJD в днях) ---------------------
-
-// Преобразование QDateTime → MJD (в днях)
-// По стандарту MJD = JD - 2400000.5
-double CustomDateWidget::qDateTimeToModifiedJulian(const QDateTime &dt)
+double CustomDateWidget::qDateTimeToModifiedJulian(const QDateTime &dateTime)
 {
-    double jd = qDateTimeToJulian(dt);
-    return jd - 2400000.5;
+    QDateTime utc = dateTime.toUTC();
+
+    qint64 days = mjdEpoch.daysTo(utc);
+    qint64 msecsInDay = 86400000;
+    qint64 msecsSinceMidnight = utc.time().msecsSinceStartOfDay();
+
+    double fractionalDay = static_cast<double>(msecsSinceMidnight) / static_cast<double>(msecsInDay);
+    double mjd = static_cast<double>(days) + fractionalDay;
+
+    return mjd;
 }
 
-// Обратное преобразование: MJD (в днях) → QDateTime
-// Вычисляем сначала JD как MJD + 2400000.5, затем QDateTime
 QDateTime CustomDateWidget::modifiedJulianToQDateTime(double mjd)
 {
-    double jd = mjd + 2400000.5;
-    return julianToQDateTime(jd);
+    qint64 days = static_cast<qint64>(mjd);
+    double fractional = mjd - static_cast<double>(days);
+    qint64 msecs = static_cast<qint64>(std::round(fractional * 86400000.0));
+
+    QDateTime result = mjdEpoch.addDays(days).addMSecs(msecs);
+    return result;
 }
