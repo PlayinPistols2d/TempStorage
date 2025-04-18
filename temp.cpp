@@ -15,12 +15,15 @@ public:
     explicit RocketLoadingScreen(QWidget* parent = nullptr);
     ~RocketLoadingScreen() override = default;
 
-    /// Animate to this percent (0…100). Can be invoked from any thread.
+    /// Thread‑safe entry point: animate rocket to `percent` (0…100)
     Q_SLOT void setProgress(int percent);
 
-    /// For QPropertyAnimation
+    // used by the animation
     int progressValue() const;
     Q_SLOT void setProgressValue(int percent);
+
+protected:
+    void showEvent(QShowEvent* ev) override;
 
 private:
     QWidget*      m_barWidget;
@@ -35,9 +38,6 @@ private:
 };
 
 
-
-
-
 // RocketLoadingScreen.cpp
 #include "RocketLoadingScreen.h"
 #include <QVBoxLayout>
@@ -46,43 +46,37 @@ private:
 #include <QSpacerItem>
 #include <QPropertyAnimation>
 #include <QApplication>
+#include <QShowEvent>
 #include <Qt>
 
 RocketLoadingScreen::RocketLoadingScreen(QWidget* parent)
   : QDialog(parent)
 {
-    // ——— Overlay setup ———
     setWindowFlags(windowFlags() |
                    Qt::FramelessWindowHint |
                    Qt::Dialog);
     setModal(true);
-    // allow semi‑transparent background
     setAttribute(Qt::WA_TranslucentBackground);
-    // blue tint at 50% opacity
+
+    // semi‑transparent blue overlay
     setStyleSheet("background-color: rgba(0, 122, 204, 128);");
 
-    // make full‑size over parent
-    if (parent) {
-        resize(parent->size());
-        move(parent->pos());
-    }
+    // center the bar vertically
+    auto *mainLay = new QVBoxLayout(this);
+    mainLay->setContentsMargins(0,0,0,0);
+    mainLay->addStretch();
 
-    // ——— Bar widget ———
+    // the bar container
     m_barWidget = new QWidget(this);
-    m_barWidget->setFixedHeight(60);
     m_barWidget->setStyleSheet(
         "background-color: #31363b;"
         "border-radius: 10px;"
     );
 
-    // center the bar in the overlay
-    auto *mainLay = new QVBoxLayout(this);
-    mainLay->setContentsMargins(0,0,0,0);
-    mainLay->addStretch();
     mainLay->addWidget(m_barWidget, 0, Qt::AlignHCenter);
     mainLay->addStretch();
 
-    // ——— Emoji layout inside the bar ———
+    // inside the bar: 🌍 – 🚀 – 🌕
     m_layout = new QHBoxLayout(m_barWidget);
     m_layout->setContentsMargins(15, 0, 15, 0);
     m_layout->setSpacing(0);
@@ -101,8 +95,24 @@ RocketLoadingScreen::RocketLoadingScreen(QWidget* parent)
     m_layout->addWidget(m_rocketLabel);
     m_layout->addItem(m_rightSpacer);
     m_layout->addWidget(m_moonLabel);
+}
 
-    // start hidden; show() & setProgress(0) when you’re ready
+void RocketLoadingScreen::showEvent(QShowEvent* ev)
+{
+    QDialog::showEvent(ev);
+    if (parentWidget()) {
+        // 90% of parent width, 100px tall
+        int barW = int(parentWidget()->width() * 0.9);
+        m_barWidget->setFixedSize(barW, 100);
+
+        // scale emoji fonts to ~80px
+        QFont f = m_earthLabel->font();
+        f.setPixelSize(int(100 * 0.8));
+        for (auto *lbl : {m_earthLabel, m_rocketLabel, m_moonLabel})
+            lbl->setFont(f);
+    }
+    // ensure initial position
+    setProgressValue(m_progress);
 }
 
 int RocketLoadingScreen::progressValue() const {
@@ -110,58 +120,19 @@ int RocketLoadingScreen::progressValue() const {
 }
 
 void RocketLoadingScreen::setProgressValue(int percent) {
-    // internal setter for animation
     m_progress = percent;
     m_layout->setStretch(1, m_progress);
     m_layout->setStretch(3, 100 - m_progress);
-    // force repaint
     QApplication::processEvents();
 }
 
 void RocketLoadingScreen::setProgress(int percent) {
     percent = qBound(0, percent, 100);
-
-    // animate from current → new
     auto *anim = new QPropertyAnimation(this, "progressValue");
-    anim->setDuration(400);
+    anim->setDuration(600);
     anim->setStartValue(m_progress);
     anim->setEndValue(percent);
     anim->setEasingCurve(QEasingCurve::InOutCubic);
     connect(anim, &QPropertyAnimation::finished, anim, &QObject::deleteLater);
     anim->start();
 }
-
-
-
-
-
-// in your function:
-auto* loader = new RocketLoadingScreen(this);
-loader->show();
-loader->setProgress(0);
-
-// … your existing if/DB calls …  
-// after each step, bump the loader:
-QMetaObject::invokeMethod(loader,
-                          "setProgress",
-                          Qt::QueuedConnection,
-                          Q_ARG(int, 30));
-// … more work …
-QMetaObject::invokeMethod(loader,
-                          "setProgress",
-                          Qt::QueuedConnection,
-                          Q_ARG(int, 60));
-// … final import …
-QMetaObject::invokeMethod(loader,
-                          "setProgress",
-                          Qt::QueuedConnection,
-                          Q_ARG(int, 100));
-
-// when done or on error:
-QMetaObject::invokeMethod(loader,
-                          [loader](){
-                            loader->hide();
-                            loader->deleteLater();
-                          },
-                          Qt::QueuedConnection);
-
