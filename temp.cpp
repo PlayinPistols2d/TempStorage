@@ -1,301 +1,139 @@
-// RocketProgressBar.h
-#ifndef ROCKETPROGRESSBAR_H
-#define ROCKETPROGRESSBAR_H
-
-#include <QWidget>
-#include <QString>
-
-class RocketProgressBar : public QWidget {
-    Q_OBJECT
-    Q_PROPERTY(int value READ value WRITE setValue NOTIFY valueChanged)
-
-public:
-    explicit RocketProgressBar(QWidget *parent = nullptr);
-
-    int value() const { return m_value; }
-
-public slots:
-    void setValue(int v);
-
-signals:
-    void valueChanged(int);
-
-protected:
-    void paintEvent(QPaintEvent* event) override;
-
-private:
-    QString  m_earthEmoji;
-    QString  m_rocketEmoji;
-    QString  m_moonEmoji;
-    int      m_value = 0;
-};
-
-#endif // ROCKETPROGRESSBAR_H
-
-
-
-
-// RocketProgressBar.cpp
-#include "RocketProgressBar.h"
-#include <QPainter>
-#include <QFontMetrics>
-
-RocketProgressBar::RocketProgressBar(QWidget *parent)
-  : QWidget(parent),
-    m_earthEmoji("🌍"),
-    m_rocketEmoji("🚀"),
-    m_moonEmoji("🌕")
-{
-    // reserve enough height for the emoji
-    setMinimumHeight(50);
-}
-
-void RocketProgressBar::setValue(int v) {
-    v = qBound(0, v, 100);
-    if (m_value == v) return;
-    m_value = v;
-    update();
-    emit valueChanged(v);
-}
-
-void RocketProgressBar::paintEvent(QPaintEvent*) {
-    QPainter p(this);
-    p.setRenderHint(QPainter::TextAntialiasing);
-
-    // 1) fill background with #31363b
-    p.fillRect(rect(), QColor("#31363b"));
-
-    const int H = height();
-    const int W = width();
-
-    // 2) pick a font size that fills ~80% of height
-    QFont f = p.font();
-    f.setPixelSize(int(H * 0.8));
-    p.setFont(f);
-    QFontMetrics fm(f);
-
-    // helper: draw an emoji centered in [x,0,H,H]
-    auto drawEmoji = [&](const QString &emoji, int x) {
-        QRect r(x, 0, H, H);
-        p.drawText(r, Qt::AlignCenter, emoji);
-    };
-
-    // draw Earth at left
-    drawEmoji(m_earthEmoji, 0);
-
-    // draw Moon at right (full moon emoji 🌕)
-    drawEmoji(m_moonEmoji, W - H);
-
-    // draw Rocket interpolated
-    qreal t = m_value / 100.0;
-    int   xPos = int((W - H) * t);
-    drawEmoji(m_rocketEmoji, xPos);
-}
-
-
-
-
-// LoadingDialog.h
-#ifndef LOADINGDIALOG_H
-#define LOADINGDIALOG_H
+// RocketLoadingScreen.h
+#pragma once
 
 #include <QDialog>
-class RocketProgressBar;
 
-class LoadingDialog : public QDialog {
+class QHBoxLayout;
+class QLabel;
+class QSpacerItem;
+
+class RocketLoadingScreen : public QDialog {
     Q_OBJECT
-
 public:
-    explicit LoadingDialog(QWidget *parent = nullptr);
+    explicit RocketLoadingScreen(QWidget* parent = nullptr);
 
-public slots:
+    /// percent from 0…100; call this after each DB step
     void setProgress(int percent);
 
 private:
-    RocketProgressBar* m_bar;
+    QHBoxLayout*  m_layout;
+    QLabel*       m_earthLabel;
+    QLabel*       m_rocketLabel;
+    QLabel*       m_moonLabel;
+    QSpacerItem*  m_leftSpacer;
+    QSpacerItem*  m_rightSpacer;
 };
 
-#endif // LOADINGDIALOG_H
 
 
 
 
-// LoadingDialog.cpp
-#include "LoadingDialog.h"
-#include "RocketProgressBar.h"
-#include <QVBoxLayout>
 
-LoadingDialog::LoadingDialog(QWidget *parent)
+// RocketLoadingScreen.cpp
+#include "RocketLoadingScreen.h"
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QSpacerItem>
+#include <QApplication>
+#include <Qt>
+
+RocketLoadingScreen::RocketLoadingScreen(QWidget* parent)
   : QDialog(parent)
 {
-    // frameless so the bar covers full dialog
-    setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
-    setModal(true);
+    // frameless, non‑modal overlay
+    setWindowFlags(windowFlags() | Qt::FramelessWindowHint | Qt::Dialog);
+    setModal(false);
 
-    m_bar = new RocketProgressBar(this);
+    // dark #31363b background
+    setStyleSheet("background-color: #31363b;");
 
-    auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(0,0,0,0);
-    lay->setSpacing(0);
-    lay->addWidget(m_bar);
-    setLayout(lay);
+    // fixed height (width will adjust to parent/layout)
+    setFixedHeight(50);
 
-    // match width to something reasonable
-    resize(400, m_bar->minimumHeight());
+    // layout:  🌍 | ◼︎Spacer◼︎ | 🚀 | ◼︎Spacer◼︎ | 🌕
+    m_layout = new QHBoxLayout(this);
+    m_layout->setContentsMargins(0,0,0,0);
+    m_layout->setSpacing(0);
+
+    m_earthLabel  = new QLabel("🌍", this);
+    m_rocketLabel = new QLabel("🚀", this);
+    m_moonLabel   = new QLabel("🌕", this);
+    for (QLabel* lbl : {m_earthLabel, m_rocketLabel, m_moonLabel})
+        lbl->setAlignment(Qt::AlignCenter);
+
+    m_leftSpacer  = new QSpacerItem(0,0, QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_rightSpacer = new QSpacerItem(0,0, QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    m_layout->addWidget(m_earthLabel);
+    m_layout->addItem(m_leftSpacer);
+    m_layout->addWidget(m_rocketLabel);
+    m_layout->addItem(m_rightSpacer);
+    m_layout->addWidget(m_moonLabel);
 }
 
-void LoadingDialog::setProgress(int percent) {
-    m_bar->setValue(percent);
+void RocketLoadingScreen::setProgress(int percent)
+{
+    percent = qBound(0, percent, 100);
+    // spacer at index 1 is left, at index 3 is right
+    m_layout->setStretch(1, percent);
+    m_layout->setStretch(3, 100 - percent);
+    // force immediate repaint even if DB call is blocking
+    QApplication::processEvents();
 }
 
 
 
+ #include "RocketLoadingScreen.h"
 
-// Worker.h
-#ifndef WORKER_H
-#define WORKER_H
+void MyWindow::yourImportFunction()
+{
+    // 1) create & show the loader
+    auto* loader = new RocketLoadingScreen(this);
+    loader->show();
+    loader->setProgress(0);
 
-#include <QObject>
-#include <QString>
+    // 2) your unchanged if/DB logic, just add setProgress() and cleanup
+    if (ui->cb_type->currentText() == "text") {
+        // … your QMessageBox code …
 
-class Worker : public QObject {
-    Q_OBJECT
-
-public:
-    explicit Worker(const QString& query, QObject *parent = nullptr);
-
-public slots:
-    void process();
-
-signals:
-    void progress(int);
-    void finished();
-    void error(const QString& message);
-
-private:
-    QString m_query;
-
-    bool execQuery(const QString& q) {
-        // your real DB logic here; return false on failure
-        Q_UNUSED(q);
-        return true;
-    }
-};
-
-#endif // WORKER_H
-
-
-
-// Worker.cpp
-#include "Worker.h"
-#include <QThread>
-
-Worker::Worker(const QString& query, QObject* parent)
-  : QObject(parent), m_query(query)
-{}
-
-void Worker::process() {
-    const int totalSteps = 100;
-    for (int i = 0; i <= totalSteps; ++i) {
-        if (!execQuery(m_query)) {
-            emit error(tr("DB error at step %1").arg(i));
+        loader->setProgress(20);
+        bool ok = worker->execQuery(query);
+        if (!ok) {
+            loader->hide();
+            loader->deleteLater();
+            addLog(LogMessageType::critical, "Ошибка удаления из базы данных");
             return;
         }
-        emit progress(i * 100 / totalSteps);
-        QThread::msleep(20);  // simulate workload
+
+        loader->setProgress(50);
+        addLog(LogMessageType::common, "успешно удалены из базы данных");
     }
-    emit finished();
-}
+    else if (ui->cb_type->currentText() == "ЧК ВЧК") {
+        // … same pattern …
+        loader->setProgress(20);
+        worker->execQuery(query);
+        // … check ok …
+        loader->setProgress(40);
+        worker->execQuery(query);
+        // … check ok …
+        loader->setProgress(60);
+    }
+    else if (ui->cb_type->currentText() == "МЦИ") {
+        // … same pattern …
+        loader->setProgress(20);
+        worker->execQuery(query);
+        // … check ok …
+        loader->setProgress(40);
+        worker->execQuery(query);
+        // … check ok …
+        loader->setProgress(60);
+    }
 
+    // final import step
+    importToDb(cur);
+    loader->setProgress(100);
 
-
-
-// MainWindow.h
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
-
-#include <QMainWindow>
-#include "Worker.h"
-#include "LoadingDialog.h"
-
-namespace Ui { class MainWindow; }
-
-class MainWindow : public QMainWindow {
-    Q_OBJECT
-
-public:
-    explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-
-private slots:
-    void on_btnImport_clicked();
-
-private:
-    Ui::MainWindow *ui;
-
-    // assume you already have this in your existing code:
-    void addLog(int type, const QString &msg);
-};
-
-#endif // MAINWINDOW_H
-
-
-
-// MainWindow.cpp
-#include "MainWindow.h"
-#include "ui_MainWindow.h"
-#include <QMessageBox>
-#include <QThread>
-
-MainWindow::MainWindow(QWidget *parent)
-  : QMainWindow(parent), ui(new Ui::MainWindow)
-{
-    ui->setupUi(this);
-}
-
-MainWindow::~MainWindow() {
-    delete ui;
-}
-
-void MainWindow::on_btnImport_clicked() {
-    // build your confirmation text exactly as before...
-    QString prompt = tr("Удалить перед импортом из файла?");
-    if (ui->cb_type->currentText() == "ЧК ВЧК")
-        prompt = tr("Удалить из базы данных перед импортом из файла?");
-    else if (ui->cb_type->currentText() == "МЦИ")
-        prompt = tr("Удалить существующие %1 из базы данных и импортировать новые из файла?")
-                     .arg(ui->cb_mciCmd->currentText());
-
-    QMessageBox dlg(this);
-    dlg.setWindowTitle(tr("Предупреждение"));
-    dlg.setText(prompt);
-    dlg.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-    dlg.button(QMessageBox::Ok)->setText(tr("ОК"));
-    dlg.button(QMessageBox::Cancel)->setText(tr("Отмена"));
-    if (dlg.exec() != QMessageBox::Ok)
-        return;
-
-    // assemble your real SQL or task into `query`
-    QString query = /* ... */ "";
-
-    // --- show loading dialog and run Worker in background ---
-    LoadingDialog *loadDlg = new LoadingDialog(this);
-    QThread        *thread  = new QThread(loadDlg);
-    Worker         *worker  = new Worker(query);
-
-    worker->moveToThread(thread);
-    connect(thread,  &QThread::started,      worker, &Worker::process);
-    connect(worker,  &Worker::progress,      loadDlg, &LoadingDialog::setProgress);
-    connect(worker,  &Worker::finished,      loadDlg, &LoadingDialog::accept);
-    connect(worker,  &Worker::error,         this,    [=](const QString &e){
-        addLog(/*LogMessageType::critical*/2, e);
-        loadDlg->reject();
-    });
-    connect(worker,  &Worker::finished,      thread,  &QThread::quit);
-    connect(thread,  &QThread::finished,     worker,  &QObject::deleteLater);
-    connect(thread,  &QThread::finished,     thread,  &QObject::deleteLater);
-
-    thread->start();
-    if (loadDlg->exec() == QDialog::Accepted)
-        addLog(/*LogMessageType::common*/1, tr("Import finished successfully"));
+    // 3) teardown
+    loader->hide();
+    loader->deleteLater();
 }
