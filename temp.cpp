@@ -9,21 +9,30 @@ class QSpacerItem;
 
 class RocketLoadingScreen : public QDialog {
     Q_OBJECT
+    Q_PROPERTY(int progressValue READ progressValue WRITE setProgressValue)
+
 public:
     explicit RocketLoadingScreen(QWidget* parent = nullptr);
+    ~RocketLoadingScreen() override = default;
 
-    /// percent from 0…100; call this after each DB step
-    void setProgress(int percent);
+    /// Animate to this percent (0…100). Can be invoked from any thread.
+    Q_SLOT void setProgress(int percent);
+
+    /// For QPropertyAnimation
+    int progressValue() const;
+    Q_SLOT void setProgressValue(int percent);
 
 private:
+    QWidget*      m_barWidget;
     QHBoxLayout*  m_layout;
     QLabel*       m_earthLabel;
     QLabel*       m_rocketLabel;
     QLabel*       m_moonLabel;
     QSpacerItem*  m_leftSpacer;
     QSpacerItem*  m_rightSpacer;
-};
 
+    int           m_progress = 0;
+};
 
 
 
@@ -31,34 +40,57 @@ private:
 
 // RocketLoadingScreen.cpp
 #include "RocketLoadingScreen.h"
+#include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSpacerItem>
+#include <QPropertyAnimation>
 #include <QApplication>
 #include <Qt>
 
 RocketLoadingScreen::RocketLoadingScreen(QWidget* parent)
   : QDialog(parent)
 {
-    // frameless, non‑modal overlay
-    setWindowFlags(windowFlags() | Qt::FramelessWindowHint | Qt::Dialog);
-    setModal(false);
+    // ——— Overlay setup ———
+    setWindowFlags(windowFlags() |
+                   Qt::FramelessWindowHint |
+                   Qt::Dialog);
+    setModal(true);
+    // allow semi‑transparent background
+    setAttribute(Qt::WA_TranslucentBackground);
+    // blue tint at 50% opacity
+    setStyleSheet("background-color: rgba(0, 122, 204, 128);");
 
-    // dark #31363b background
-    setStyleSheet("background-color: #31363b;");
+    // make full‑size over parent
+    if (parent) {
+        resize(parent->size());
+        move(parent->pos());
+    }
 
-    // fixed height (width will adjust to parent/layout)
-    setFixedHeight(50);
+    // ——— Bar widget ———
+    m_barWidget = new QWidget(this);
+    m_barWidget->setFixedHeight(60);
+    m_barWidget->setStyleSheet(
+        "background-color: #31363b;"
+        "border-radius: 10px;"
+    );
 
-    // layout:  🌍 | ◼︎Spacer◼︎ | 🚀 | ◼︎Spacer◼︎ | 🌕
-    m_layout = new QHBoxLayout(this);
-    m_layout->setContentsMargins(0,0,0,0);
+    // center the bar in the overlay
+    auto *mainLay = new QVBoxLayout(this);
+    mainLay->setContentsMargins(0,0,0,0);
+    mainLay->addStretch();
+    mainLay->addWidget(m_barWidget, 0, Qt::AlignHCenter);
+    mainLay->addStretch();
+
+    // ——— Emoji layout inside the bar ———
+    m_layout = new QHBoxLayout(m_barWidget);
+    m_layout->setContentsMargins(15, 0, 15, 0);
     m_layout->setSpacing(0);
 
-    m_earthLabel  = new QLabel("🌍", this);
-    m_rocketLabel = new QLabel("🚀", this);
-    m_moonLabel   = new QLabel("🌕", this);
-    for (QLabel* lbl : {m_earthLabel, m_rocketLabel, m_moonLabel})
+    m_earthLabel  = new QLabel("🌍", m_barWidget);
+    m_rocketLabel = new QLabel("🚀", m_barWidget);
+    m_moonLabel   = new QLabel("🌕", m_barWidget);
+    for (auto *lbl : {m_earthLabel, m_rocketLabel, m_moonLabel})
         lbl->setAlignment(Qt::AlignCenter);
 
     m_leftSpacer  = new QSpacerItem(0,0, QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -69,71 +101,67 @@ RocketLoadingScreen::RocketLoadingScreen(QWidget* parent)
     m_layout->addWidget(m_rocketLabel);
     m_layout->addItem(m_rightSpacer);
     m_layout->addWidget(m_moonLabel);
+
+    // start hidden; show() & setProgress(0) when you’re ready
 }
 
-void RocketLoadingScreen::setProgress(int percent)
-{
-    percent = qBound(0, percent, 100);
-    // spacer at index 1 is left, at index 3 is right
-    m_layout->setStretch(1, percent);
-    m_layout->setStretch(3, 100 - percent);
-    // force immediate repaint even if DB call is blocking
+int RocketLoadingScreen::progressValue() const {
+    return m_progress;
+}
+
+void RocketLoadingScreen::setProgressValue(int percent) {
+    // internal setter for animation
+    m_progress = percent;
+    m_layout->setStretch(1, m_progress);
+    m_layout->setStretch(3, 100 - m_progress);
+    // force repaint
     QApplication::processEvents();
 }
 
+void RocketLoadingScreen::setProgress(int percent) {
+    percent = qBound(0, percent, 100);
 
-
- #include "RocketLoadingScreen.h"
-
-void MyWindow::yourImportFunction()
-{
-    // 1) create & show the loader
-    auto* loader = new RocketLoadingScreen(this);
-    loader->show();
-    loader->setProgress(0);
-
-    // 2) your unchanged if/DB logic, just add setProgress() and cleanup
-    if (ui->cb_type->currentText() == "text") {
-        // … your QMessageBox code …
-
-        loader->setProgress(20);
-        bool ok = worker->execQuery(query);
-        if (!ok) {
-            loader->hide();
-            loader->deleteLater();
-            addLog(LogMessageType::critical, "Ошибка удаления из базы данных");
-            return;
-        }
-
-        loader->setProgress(50);
-        addLog(LogMessageType::common, "успешно удалены из базы данных");
-    }
-    else if (ui->cb_type->currentText() == "ЧК ВЧК") {
-        // … same pattern …
-        loader->setProgress(20);
-        worker->execQuery(query);
-        // … check ok …
-        loader->setProgress(40);
-        worker->execQuery(query);
-        // … check ok …
-        loader->setProgress(60);
-    }
-    else if (ui->cb_type->currentText() == "МЦИ") {
-        // … same pattern …
-        loader->setProgress(20);
-        worker->execQuery(query);
-        // … check ok …
-        loader->setProgress(40);
-        worker->execQuery(query);
-        // … check ok …
-        loader->setProgress(60);
-    }
-
-    // final import step
-    importToDb(cur);
-    loader->setProgress(100);
-
-    // 3) teardown
-    loader->hide();
-    loader->deleteLater();
+    // animate from current → new
+    auto *anim = new QPropertyAnimation(this, "progressValue");
+    anim->setDuration(400);
+    anim->setStartValue(m_progress);
+    anim->setEndValue(percent);
+    anim->setEasingCurve(QEasingCurve::InOutCubic);
+    connect(anim, &QPropertyAnimation::finished, anim, &QObject::deleteLater);
+    anim->start();
 }
+
+
+
+
+
+// in your function:
+auto* loader = new RocketLoadingScreen(this);
+loader->show();
+loader->setProgress(0);
+
+// … your existing if/DB calls …  
+// after each step, bump the loader:
+QMetaObject::invokeMethod(loader,
+                          "setProgress",
+                          Qt::QueuedConnection,
+                          Q_ARG(int, 30));
+// … more work …
+QMetaObject::invokeMethod(loader,
+                          "setProgress",
+                          Qt::QueuedConnection,
+                          Q_ARG(int, 60));
+// … final import …
+QMetaObject::invokeMethod(loader,
+                          "setProgress",
+                          Qt::QueuedConnection,
+                          Q_ARG(int, 100));
+
+// when done or on error:
+QMetaObject::invokeMethod(loader,
+                          [loader](){
+                            loader->hide();
+                            loader->deleteLater();
+                          },
+                          Qt::QueuedConnection);
+
